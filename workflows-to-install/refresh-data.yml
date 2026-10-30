@@ -1,0 +1,244 @@
+# Nightly data refresh (README phase 6): run the tests, rebuild web/data with
+# pipeline/build.py, commit the result to main and publish the site.
+#
+# Secrets:    TIINGO_API_KEY          (without it, cached prices are republished only)
+# Variables (all optional, Settings -> Secrets and variables -> Actions -> Variables):
+#   TIINGO_MAX_REQUESTS     stop the price step after this many Tiingo requests
+#   CAPITOL_API             "off" to skip the House refresh (House trades are then kept
+#                           from the last build)
+#   CAPITOL_API_REF         Capitol API git ref to run (default: main)
+#   CAPITOL_TIMEOUT_MINUTES how long to wait for Capitol API to parse new PTRs (default 150)
+#
+# The pipeline caches (Tiingo raw prices, eFD report pages, congress-legislators) and
+# Capitol API's parsed-PTR cache live in the Actions cache, not in git. They are saved
+# even when a step fails, so a run that stops early is resumed by the next one.
+name: Refresh data
+
+on:
+  schedule:
+    # 09:23 UTC, i.e. early morning in the US: after Tiingo's end-of-day prices
+    # and the overnight filings. GitHub may start scheduled runs late.
+    - cron: "23 9 * * *"
+  workflow_dispatch:
+    inputs:
+      sources:
+        description: "Trade sources to fetch (house, senate). Sources left out keep their trades."
+        type: string
+        default: house,senate
+      max_requests:
+        description: "Tiingo request limit for this run (empty: the TIINGO_MAX_REQUESTS variable, or no limit)"
+        type: string
+        default: ""
+      refresh_prices:
+        description: "Refetch every ticker's full price history (needs a paid Tiingo plan)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Never run two refreshes at once: they would race on the caches and on main.
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  refresh:
+    needs: test
+    runs-on: ubuntu-latest
+    # GitHub's limit is 360. Capitol API waits at most CAPITOL_TIMEOUT_MINUTES; the
+    # first eFD download takes about an hour; prices stop at the Tiingo limit.
+    timeout-minutes: 340
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    env:
+      SOURCES: ${{ inputs.sources || 'house,senate' }}
+      MAX_REQUESTS: ${{ inputs.max_requests || vars.TIINGO_MAX_REQUESTS }}
+      REFRESH_PRICES: ${{ inputs.refresh_prices && '--refresh-prices' || '' }}
+      WANT_HOUSE: ${{ contains(format(',{0},', inputs.sources || 'house,senate'), ',house,') && vars.CAPITOL_API != 'off' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}  # the branch head, so the data commit can be pushed
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install pipeline dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Restore pipeline cache
+        uses: actions/cache/restore@v4
+        with:
+          path: pipeline/cache
+          key: pipeline-cache-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: pipeline-cache-
+
+      # ---------------------------------------------------------------- House (Capitol API)
+
+      - name: Check out Capitol API
+        if: env.WANT_HOUSE == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: crnicholson/capitol-api
+          ref: ${{ vars.CAPITOL_API_REF || 'main' }}
+          path: capitol-api
+
+      - name: Restore Capitol API cache
+        if: env.WANT_HOUSE == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: capitol-api/cache
+          key: capitol-cache-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: capitol-cache-
+
+      - uses: actions/setup-node@v4
+        if: env.WANT_HOUSE == 'true'
+        with:
+          node-version: "22"
+
+      - name: Start Capitol API
+        if: env.WANT_HOUSE == 'true'
+        working-directory: capitol-api
+        run: |
+          npm ci --no-audit --no-fund
+          # Parse PTRs from 2018 through the current year; only new filings are fetched.
+          YEARS_START=2018 YEARS_END="$(date -u +%Y)" PORT=3000 \
+            nohup npm start > "$RUNNER_TEMP/capitol-api.log" 2>&1 &
+
+      - name: Refresh House PTRs
+        id: capitol
+        if: env.WANT_HOUSE == 'true'
+        working-directory: pipeline
+        env:
+          CAPITOL_API_URL: http://localhost:3000
+        # Exit codes (capitol_refresh.py): 0 complete, 1 error, 2 still parsing at the
+        # timeout (normal on the first runs), 3 stopped incomplete. Recorded, not fatal:
+        # the build then keeps the House trades of the last build.
+        run: |
+          set +e
+          python capitol_refresh.py --timeout-minutes "${{ vars.CAPITOL_TIMEOUT_MINUTES || 150 }}"
+          code=$?
+          echo "exit=$code" >> "$GITHUB_OUTPUT"
+          if [ $code -eq 2 ]; then
+            echo "::warning title=Capitol API still parsing::New House PTRs weren't all parsed in time. The next run continues from the saved cache."
+          elif [ $code -ne 0 ]; then
+            echo "::error title=Capitol API refresh failed (exit $code)::House trades are kept from the last build."
+          fi
+          exit 0
+
+      - name: Stop Capitol API
+        if: always() && env.WANT_HOUSE == 'true'
+        run: |
+          pkill -f "node server.js" || true
+          sleep 2
+          tail -n 40 "$RUNNER_TEMP/capitol-api.log" || true
+
+      # ---------------------------------------------------------------- build
+
+      - name: Build data
+        id: build
+        working-directory: pipeline
+        env:
+          TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
+          CAPITOL_COMPLETE: ${{ steps.capitol.outputs.complete }}
+        run: |
+          set +e
+          sources=()
+          capitol=()
+          IFS=',' read -ra wanted <<< "$SOURCES"
+          for s in "${wanted[@]}"; do
+            s="$(echo "$s" | tr -d '[:space:]')"
+            [ -z "$s" ] && continue
+            if [ "$s" = house ]; then
+              if [ "$WANT_HOUSE" = true ] && [ "$CAPITOL_COMPLETE" = true ]; then
+                sources+=(house)
+                capitol=(--capitol-file "$GITHUB_WORKSPACE/capitol-api/cache/trades.json")
+              else
+                echo "::warning title=House not refreshed::Capitol API wasn't run or didn't finish; House trades are kept from the last build."
+              fi
+            else
+              sources+=("$s")
+            fi
+          done
+          limit=()
+          [ -n "$MAX_REQUESTS" ] && limit=(--max-requests "$MAX_REQUESTS")
+
+          if [ ${#sources[@]} -eq 0 ]; then
+            echo "No trade source to fetch; updating prices only."
+            python build.py --prices-only "${limit[@]}" $REFRESH_PRICES
+          else
+            joined="$(IFS=,; echo "${sources[*]}")"
+            python build.py --sources "$joined" "${capitol[@]}" "${limit[@]}" $REFRESH_PRICES
+          fi
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if [ $code -ne 0 ]; then
+            echo "::error title=build.py exited with $code::See the log above. Data that was built is still committed."
+          fi
+          exit 0
+
+      - name: Save pipeline cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: pipeline/cache
+          key: pipeline-cache-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Save Capitol API cache
+        if: always() && env.WANT_HOUSE == 'true' && hashFiles('capitol-api/cache/trades.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: capitol-api/cache
+          key: capitol-cache-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # ---------------------------------------------------------------- publish
+
+      - name: Commit web/data
+        id: commit
+        if: ${{ !cancelled() && hashFiles('web/data/meta.json') != '' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A web/data
+          if git diff --cached --quiet; then
+            echo "No data changes."
+          else
+            stamp="$(python -c "import json; m=json.load(open('web/data/meta.json')); print(m.get('builtAt',''))")"
+            git commit -q -m "Refresh data ${stamp}" -m "Built by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            # main may have moved while we were building; data commits only touch web/data.
+            for i in 1 2 3; do
+              git pull --rebase -q origin "$GITHUB_REF_NAME" && git push -q origin "HEAD:$GITHUB_REF_NAME" && break
+              sleep 5
+            done
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git log -1 --stat --format='%h %s' | head -20
+
+      - name: Fail the run if something went wrong
+        # The data that was built has been committed (and is deployed below) either way.
+        if: steps.build.outputs.code != '0' || (steps.capitol.outputs.exit != '' && steps.capitol.outputs.exit != '0' && steps.capitol.outputs.exit != '2')
+        run: |
+          echo "build.py exit code: ${{ steps.build.outputs.code }}"
+          echo "capitol_refresh.py exit code: ${{ steps.capitol.outputs.exit || 'not run' }}"
+          exit 1
+
+  deploy:
+    needs: refresh
+    # Publish whatever was committed, even if the run is marked failed afterwards.
+    if: ${{ !cancelled() && needs.refresh.outputs.sha != '' }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/deploy-pages.yml
+    with:
+      ref: ${{ needs.refresh.outputs.sha }}

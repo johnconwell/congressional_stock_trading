@@ -15,8 +15,9 @@ A browser-based app that rebuilds the combined stock portfolio of members of the
    - **End date.** Defaults to the latest available closing price.
    - **Amount estimator.** Disclosures give ranges such as `$15,001 – $50,000`. The user picks `Low`, `Midpoint` (the default) or `High`.
    - **Date basis.** Choose `Transaction date` (the default) or `Disclosure date`. Disclosure date shows what an outside observer could actually have copied.
-   - **Member filters** (see 1.3): party, gender, age decade and geographic region, each with multiple selections allowed.
-   - **Other filters** (later phase): chamber, individual members, and owner (self, spouse, joint, dependent).
+   - **Member filters**: chamber, party, gender, age decade, geographic region, state and specific members, each with multiple selections allowed.
+   - **Owner filter**: self, spouse, joint, dependent (whose account the trade was in).
+   - **One member**: a search box that opens the per-member view (see 1.1 item 6).
 2. **Main chart.** A line chart of daily values:
    - **Congress pool total value.** Stock holdings plus cash.
    - **S&P 500 pool total value.** SPY holdings plus cash.
@@ -24,6 +25,7 @@ A browser-based app that rebuilds the combined stock portfolio of members of the
 3. **Summary cards.** Current value of each pool, total contributed, cash balance, absolute and % gain, and the difference between the two pools.
 4. **Holdings table.** The Congress pool's current positions: ticker, shares, value, % of pool and the members who hold it.
 5. **Trade log.** A sortable, searchable list of every trade applied, with the dollar amount used. Trades that were skipped are flagged with the reason, for example *no price data* or *sale with no matching holdings*.
+6. **Per-member view.** The same chart, cards and tables restricted to one member's trades, with a profile (party, seat, chamber, age, number of trades, dates) and a link to the member's congressional biography. Member names in the holdings table and trade log open it; *All members* (or the browser's Back button) returns.
 
 ### 1.2 Simulation rules
 
@@ -68,14 +70,18 @@ Members, their spouses and dependent children must disclose securities transacti
 | Source | Notes |
 |---|---|
 | **House Clerk Financial Disclosure portal** (official) | Periodic Transaction Reports (PTRs). There is a yearly index file, but many PTRs are PDFs that have to be parsed. This is the authoritative source. |
-| **Senate eFD** (official) | Electronic PTRs as HTML, plus some scanned paper filings. |
-| **Capitol API** (`crnicholson/capitol-api`, open source) | Self-hostable. Parses House PTRs from 2018 onward into JSON. A good first source for House data. |
+| **Senate eFD** (official) | Electronic PTRs as HTML, plus some scanned paper filings. **Used** (phase 5, `sources/senate_efd.py`). |
+| **Capitol API** (`crnicholson/capitol-api`, open source) | Self-hostable. Parses House PTRs from 2018 onward into JSON. **Used** for House data (phase 1). |
 | Free-tier commercial APIs (Disclosed Capitol, Bargo, FMP, etc.) | Clean JSON for both chambers, but they need a key, have rate limits and sometimes cap history. Bargo's free tier, for example, covers only about the last 3 months. They can be added later as adapters. |
 | House/Senate Stock Watcher | **Do not depend on these.** House Stock Watcher is deprecated and its S3 archive has been reported as unreachable. |
 
+### 2.2 Member metadata
+
+Party, state, district, gender and birth date come from **`unitedstates/congress-legislators`** (public domain, on GitHub), which lists every member's bioguide ID, biography and terms served. See 3.2 *Member metadata*.
+
 Federal law limits how financial disclosure data can be used (no commercial use, for example). This project is non-commercial research. Check each source's terms before you publish the data again.
 
-### 2.2 Daily closing prices
+### 2.3 Daily closing prices
 
 | Source | Notes |
 |---|---|
@@ -102,13 +108,11 @@ The app is therefore split into an **offline data pipeline**, which produces sta
 ```
 ┌──────────────────────── Data pipeline (Python, run on a schedule) ──────────────────────────┐
 │                                                                                             │
-│  sources/house.py ─┐                                                                        │
-│  sources/senate.py ┼─► normalize.py ─► trades.json ─┐                                       │
-│  sources/<api>.py ─┘   (tickers, types,             │                                       │
-│                         amount ranges,              ├─► prices.py ─► prices/<TICKER>.json    │
-│                         dedupe)                     │   (Tiingo, cached, incremental)       │
-│                                                     └─► meta.json (build time, coverage,     │
-│                                                          skipped-asset counts)              │
+│  sources/capitol_api.py ─┐                                                                  │
+│  sources/senate_efd.py  ─┼─► normalize.py ─► members.py ─► trades.json ─┬─► prices.py       │
+│  sources/<api>.py       ─┘   (tickers, types, (party, state,           │   (Tiingo, cached) │
+│                               amounts,        gender, birth            │   ► prices/*.json  │
+│                               dedupe)         date)                    └─► meta.json        │
 └──────────────────────────────────────────┬──────────────────────────────────────────────────┘
                                            │ static files committed to web/data/
 ┌──────────────────────────────────────────▼──────── Web app (static HTML/JS) ────────────────┐
@@ -117,10 +121,13 @@ The app is therefore split into an **offline data pipeline**, which produces sta
 │  js/sim.js      – pure simulation engine (no DOM), unit-tested                              │
 │  js/chart.js    – Chart.js time-series rendering                                            │
 │  js/ui.js       – controls, summary cards, holdings table, trade log                        │
+│  js/state.js    – view settings <-> URL query string (pure, unit-tested)                    │
+│  js/members.js  – one record per member, for the member view and search (pure, unit-tested) │
+│  js/freshness.js – "Data as of …" line and out-of-date warning (pure, unit-tested)          │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Hosting: any static host, such as GitHub Pages or Netlify, or `python -m http.server` locally. A scheduled GitHub Actions workflow can run the pipeline every night, commit the refreshed data and redeploy.
+Hosting: any static host, such as GitHub Pages or Netlify, or `python -m http.server` locally. A scheduled GitHub Actions workflow runs the pipeline every night, commits the refreshed data and redeploys to GitHub Pages (section 6).
 
 ### 3.2 Data formats
 
@@ -129,13 +136,13 @@ Hosting: any static host, such as GitHub Pages or Netlify, or `python -m http.se
 ```json
 [
   {
-    "id": "house-20012345-3",     // <chamber>-<source id>
+    "id": "house-20012345-3",     // <chamber>-<source id>; Senate: senate-<report uuid>-<row>
     "chamber": "house",
     "member": "Jane Doe",
-    "memberId": "D000001",      // bioguide ID
-    "party": "D",
-    "state": "CA",
-    "district": 12,
+    "memberId": "D000001",      // bioguide ID (null if the filer couldn't be matched)
+    "party": "D",               // D | R | I | L, as of the transaction date
+    "state": "CA",              // as of the transaction date
+    "district": 12,             // House only; 0 = at-large; null for the Senate
     "gender": "F",
     "birthDate": "1960-01-01",
     "owner": "spouse",          // self | spouse | joint | dependent | self_or_dependent | other
@@ -148,7 +155,7 @@ Hosting: any static host, such as GitHub Pages or Netlify, or `python -m http.se
     "amountLow": 15001,
     "amountHigh": 50000,
     "flags": [],                // amount_bracket_inferred | amount_open_ended
-    "source": "capitol-api",
+    "source": "capitol-api",    // capitol-api | senate-efd
     "filingId": "20012345",
     "sourceUrl": "https://..."
   }
@@ -163,7 +170,17 @@ Hosting: any static host, such as GitHub Pages or Netlify, or `python -m http.se
 
 The file name is `<TICKER>.json`, with one exception: Windows can't create files named after devices (`CON`, `PRN`, `AUX`, `NUL`, `COM0`–`COM9`, `LPT0`–`LPT9`), so those get a trailing underscore, e.g. `CON_.json`. `meta.json` lists these in `prices.fileNames`, and the web app must use that map.
 
-**`web/data/meta.json`**: build timestamp, date coverage by chamber, number of raw, kept and excluded records, exclusion counts by reason, flag counts, the list of tickers, and `tickersWithoutPrices`. The price step adds a `prices` block:
+**`web/data/meta.json`**: build timestamp, date coverage by chamber, number of raw, kept and excluded records (`counts` in total, `countsBySource` per source), exclusion counts by reason, flag counts, the list of tickers, and `tickersWithoutPrices`. Phase 5 adds:
+
+| Key | Meaning |
+|---|---|
+| `members` | `resolved` / `trades` with member metadata, and `unresolved` (filer → number of trades) |
+| `sourceStats` | per-source counters, e.g. eFD reports listed, downloaded, paper reports skipped |
+| `carriedOver` | source → trades kept from the previous build because the source wasn't fetched this run |
+| `sourceErrors` | source → error message, when a source's fetch failed (its old trades were kept) |
+| `buildRun` | `{url, event}` of the GitHub Actions run that built the data (only when built in Actions) |
+
+The price step adds a `prices` block:
 
 | Key | Meaning |
 |---|---|
@@ -182,9 +199,20 @@ The file name is `<TICKER>.json`, with one exception: Windows can't create files
 - **Amendments.** Records carry no amendment flag. A trade that appears identically (member, owner, ticker, type, date, amount) in more than one filing is kept only from the latest filing. Identical rows inside one filing are separate lots and are all kept. An amendment that *changes* a trade can't be matched to the original, so both copies stay.
 - **Dates.** A few transaction dates fall after the filing date (typos). Those trades are excluded as `tx_after_disclosure`.
 
+**Senate eFD.** The adapter accepts the site's usage agreement (a form post with a CSRF token), lists Periodic Transaction Reports through the search page's JSON endpoint (`/search/report/data/`, 100 per request) and reads each electronic report's HTML table. Notes:
+
+- **Paper filings** (scanned images) are counted in `sourceStats` and skipped.
+- **Wording.** eFD writes values out (`Purchase`, `Sale (Partial)`, `Spouse`, `Stock`). `normalize.py` maps them; a plain `Sale` is treated as a partial sale. Asset types other than `Stock` (`Stock Option`, `Corporate Bond`, `Municipal Security`, `Other Securities`, `Cryptocurrency`, ...) are excluded, like their House codes. `Other Securities` includes some ETFs, but also funds and notes, so it isn't kept.
+- **Amendments** are new reports with their own uuid; the same duplicate rule as the House applies.
+- **Cache.** A filed report never changes, so each report page is saved in `pipeline/cache/senate_efd/ptr/` and only new reports are downloaded. The first full run (2018 onward, a few thousand reports at one request a second) takes about an hour; later runs take a minute. `--senate-offline` rebuilds from the cache with no requests.
+
+**Member metadata.** `members.py` downloads the congress-legislators data once a week (`pipeline/cache/legislators.json`, members serving since 2012). For House trades it uses the bioguide ID from Capitol API. Senate filings only name the filer (`Thomas H` `Tuberville`, office `Tuberville, Tommy (Senator)`), so the name is matched to a senator serving within a year of the trade: by last name, then first name, nickname or middle name if two senators share a last name (the two Scotts). `ALIASES` in `members.py` fixes names the rules miss. Party, state and district are taken **as of the trade date**, so a party switch (Sinema, Manchin) or a move from the House to the Senate (Mullin) is reflected trade by trade. If the download fails the stale cache is used; with no cache at all, trades keep the sources' own metadata.
+
+**Several sources.** Each run fetches the sources in `--sources` (default `house,senate`). A source that isn't fetched, or whose fetch fails, keeps its trades from the previous `trades.json`, so the Capitol API server being down doesn't erase the House data. A failed source makes `build.py` exit with code 1 after writing the rest.
+
 **Price cache.** `pipeline/cache/prices/<TICKER>.json` keeps Tiingo's *raw* rows (close, adjClose, splitFactor, divCash). Each run only requests dates after the last cached one, then rebuilds the split-adjusted series from the full raw history, so a new split also re-adjusts older prices. The cached `adjClose` and `divCash` are there for the later total-return mode. A ticker fetched in the last 12 hours is skipped; an unknown ticker is asked about again after 30 days. `--refresh-prices` refetches everything (to pick up corrections Tiingo makes to old data).
 
-**Tiingo limits.** The free plan allows 50 requests an hour, 1,000 a day and **500 unique symbols a month**. Each ticker costs one request per run. The price step fetches SPY first, then tickers in order of dollar volume traded, and stops cleanly when Tiingo refuses a request. Everything fetched so far is cached, so the next run continues where it stopped. With the current ~1,160 tickers this means the free plan can't fill the cache in one month or keep every ticker updated daily; the paid Power plan removes the limit.
+**Tiingo limits.** The free plan allows 50 requests an hour, 1,000 a day and **500 unique symbols a month**. Each ticker costs one request per run. The price step fetches SPY first, then tickers that have no cached prices yet (largest dollar volume first), then cached tickers, least recently fetched first; it stops cleanly when Tiingo refuses a request. Everything fetched so far is cached, so the next run continues where it stopped, and a nightly run with a small budget cycles through every ticker instead of refreshing the same top ones. With the current ~1,160 tickers this means the free plan can't fill the cache in one month or keep every ticker updated daily; the paid Power plan removes the limit.
 
 ### 3.3 Simulation engine (`js/sim.js`)
 
@@ -202,7 +230,7 @@ simulate(trades, prices, { start, end, estimator, dateBasis, filters, benchmark,
 | `start`, `end` | ISO dates, inclusive | first / last SPY date |
 | `estimator` | `low`, `mid`, `high` | `mid` |
 | `dateBasis` | `transaction`, `disclosure` | `transaction` |
-| `filters` | lists for `party`, `gender`, `ageDecade` (age on the trade date, e.g. `60` = 60–69), `region` (Census regions; DC is South, territories are `Territories`), `chamber`, `members` (bioguide IDs), `owner`, `tickers`. An empty list means no restriction. | none |
+| `filters` | lists for `party`, `gender`, `ageDecade` (age on the trade date, e.g. `60` = 60–69), `region` (Census regions; DC is South, territories are `Territories`), `state`, `chamber`, `members` (bioguide IDs, or names for unmatched filers), `owner`, `tickers`. An empty list means no restriction. | none |
 | `benchmark` | ticker whose dates are the trading calendar | `SPY` |
 | `staleDays` | calendar days without a close before a held ticker is flagged `ended` | `10` |
 
@@ -250,20 +278,36 @@ congressional_stock_tracker/
 │   ├── sources/
 │   │   ├── base.py           # TradeSource interface
 │   │   ├── capitol_api.py
-│   │   ├── house_clerk.py
 │   │   └── senate_efd.py
 │   ├── normalize.py          # ticker cleanup, type mapping, amount-range parsing, dedupe
+│   ├── members.py            # party/state/gender/birth date from congress-legislators
 │   ├── prices.py             # Tiingo client + on-disk cache, incremental updates
+│   ├── capitol_refresh.py    # CI helper: refresh a running Capitol API and wait for it
 │   └── tests/
 ├── web/
 │   ├── index.html
 │   ├── css/style.css
-│   ├── js/{data,sim,chart,ui}.js
-│   ├── vendor/chart.umd.min.js
+│   ├── js/{data,sim,chart,ui,state,members,freshness}.js
+│   ├── vendor/               # Chart.js, date-fns adapter, zoom plugin, Hammer.js (see VERSIONS.md)
 │   └── data/                 # generated; committed for static hosting
-├── tests/sim.test.js
-└── .github/workflows/refresh-data.yml
+├── tests/{sim,web}.test.js
+└── .github/workflows/
+    ├── refresh-data.yml      # nightly: tests → build → commit web/data → deploy
+    ├── deploy-pages.yml      # publish web/ to GitHub Pages (also on pushes to web/)
+    └── test.yml              # pytest + npm test on pushes and pull requests
 ```
+
+### 3.6 Web UI (`web/`)
+
+- **Loading.** `data.js` fetches `meta.json` and `trades.json` once, then only the price files for tickers in the trades that pass the current date range and member filters, eight at a time, cached for the session. Tickers listed in `meta.prices.pending` or without prices are never requested; their trades show up in the log as *no price data*, and a notice above the cards says how many tickers have prices so far.
+- **Controls.** Start/end date (bounded by SPY's dates), estimator, date basis, multi-select chips for chamber, party, gender, age decade, region and owner, and search-and-add lists for states and specific members. The options come from the trade data. Any change re-runs the simulation (a few ms on the full data set).
+- **Per-member view.** `?member=<bioguide ID>` restricts the run to one member (plus the owner filter). The group filters stay in the URL but are switched off, so *All members* restores them. Opening and leaving the view adds a browser history entry; other changes replace the current one.
+- **Chart.** Congress and S&P 500 pool totals; optional dashed *invested* lines and the net contributions line; log-scale toggle (zero values become gaps). Drag to zoom, Shift+drag to pan, Ctrl+scroll to zoom, and a *Reset zoom* button.
+- **Tables.** Holdings and trade log sort by clicking a column header. The trade log can be searched by member, ticker or skip reason, filtered by status and is paged 100 rows at a time. Trades moved to the next trading day show the reported date under the effective one.
+- **Data freshness.** The header reads *Data as of <latest close> · Disclosures through House …, Senate … · Updated 6 hours ago*. *Updated* links to the GitHub Actions run that built the data. An *Out of date* badge appears when the last build is more than 48 hours old or the latest close is more than 5 calendar days old (a weekend or holiday doesn't trigger it); the tooltip says which.
+- **Shareable links.** Settings that differ from the defaults go in the query string, e.g. `?start=2024-01-02&est=high&chamber=senate&party=R&age=60,70&state=TX,FL&owner=spouse&scale=log&show=invested,netflow`, or `?member=T000278` for a member view. Dates equal to the data's first/last day are left out, so a link without dates always shows the latest data. *Copy link* copies the current URL.
+
+The page needs a web server (ES modules and `fetch` don't work from `file://`).
 
 ---
 
@@ -290,19 +334,24 @@ congressional_stock_tracker/
 - [x] Fixture tests (`tests/sim.test.js`, run with `npm test`): a single buy; buy then partial sell; sell with no holdings (skipped); full sale; weekend trade; split day; delisted ticker; two members trading the same ticker; checking that both pools always have equal net contributions.
 
 ### Phase 4: Web UI
-- [ ] `index.html` with the controls panel, chart, summary cards, holdings table and trade log.
-- [ ] Load data on demand: fetch only the price files for tickers in the filtered trade set.
-- [ ] Chart.js rendering with tooltips, zoom/pan (optional) and a log-scale toggle.
-- [ ] Store the chosen settings in the URL query string so a view can be shared.
+- [x] `index.html` with the controls panel, chart, summary cards, holdings table and trade log.
+- [x] Load data on demand: fetch only the price files for tickers in the filtered trade set.
+- [x] Chart.js rendering with tooltips, zoom/pan and a log-scale toggle.
+- [x] Store the chosen settings in the URL query string so a view can be shared.
+- [x] Tests for the URL state and data loader (`tests/web.test.js`).
 
 ### Phase 5: Senate data and filters
-- [ ] Senate eFD adapter, or a free-tier API adapter for both chambers.
-- [ ] Member metadata (party, state, chamber) and filter controls.
-- [ ] Per-member view: the same chart restricted to one member.
+- [x] Senate eFD adapter (`sources/senate_efd.py`) with a page cache and an offline mode; `build.py --sources` combines sources and keeps the trades of any source not fetched.
+- [x] Member metadata from congress-legislators (`members.py`): Senate filers matched to bioguide IDs; party, state and district as of the trade date. Filter controls for chamber, state, specific members and owner.
+- [x] Per-member view: the same chart restricted to one member, with a profile and shareable `?member=` links.
+- [x] Tests: eFD fixtures (`test_senate_efd.py`), name matching and enrichment (`test_members.py`), multi-source builds (`test_build.py`), URL state and member index (`tests/web.test.js`).
+- [ ] Run the first full Senate fetch (`python build.py`, about an hour the first time) and check `members.unresolved` in `meta.json`.
 
 ### Phase 6: Automation and deployment
-- [ ] GitHub Actions workflow that runs `pipeline/build.py` every night, commits `web/data/` and deploys to GitHub Pages.
-- [ ] Freshness indicator in the UI ("Data as of …").
+- [x] GitHub Actions workflow that runs `pipeline/build.py` every night, commits `web/data/` and deploys to GitHub Pages (`refresh-data.yml`, `deploy-pages.yml`, `test.yml`; see section 6). Capitol API runs inside the job (`capitol_refresh.py`); pipeline and Capitol API caches persist in the Actions cache.
+- [x] Price fetch order rotates (stalest first), so the free Tiingo budget covers every ticker over successive nights.
+- [x] Freshness indicator in the UI ("Data as of …", *Out of date* badge; `js/freshness.js`, tested in `tests/web.test.js`).
+- [ ] One-time GitHub setup (section 6.1) and a first manual run.
 
 ### Possible later additions
 - Total-return mode (dividends reinvested in both pools).
@@ -323,10 +372,13 @@ git clone https://github.com/crnicholson/capitol-api && cd capitol-api && npm in
 cd pipeline
 pip install -r requirements.txt
 export TIINGO_API_KEY=...        # Windows PowerShell: $env:TIINGO_API_KEY="..."
-python build.py --since 2018-01-01                         # reads CAPITOL_API_URL (default localhost:3000)
+python build.py --since 2018-01-01                         # House (CAPITOL_API_URL, default localhost:3000) + Senate eFD
 python build.py --capitol-file ../../capitol-api/cache/trades.json   # or use its cache file directly
 python build.py --prices-only            # continue the price step after a Tiingo limit (reuses trades.json)
 python build.py --skip-prices ...        # trades only, no Tiingo calls
+python build.py --sources senate         # Senate only; House trades are kept from the last build
+python build.py --sources senate --senate-max-reports 500   # spread the first eFD download over several runs
+python build.py --senate-offline ...     # Senate from the cached eFD reports, no requests
 python build.py --prices-only --max-requests 45   # stay under the free plan's hourly limit
 
 # Tests
@@ -338,3 +390,47 @@ cd ../web
 python -m http.server 8000
 # open http://localhost:8000
 ```
+
+---
+
+## 6. Automation and deployment (GitHub Actions)
+
+### 6.1 One-time setup
+
+1. Push the repository to GitHub (the workflows assume the default branch is `main`).
+2. **Settings → Pages → Build and deployment → Source: GitHub Actions.**
+3. **Settings → Secrets and variables → Actions → Secrets:** add `TIINGO_API_KEY`. Without it the run still builds trades and republishes the cached prices.
+4. Optional **variables** on the same page:
+
+   | Variable | Effect | Default |
+   |---|---|---|
+   | `TIINGO_MAX_REQUESTS` | stop the price step after this many requests | until Tiingo refuses |
+   | `CAPITOL_API` | `off` skips the House refresh; House trades are kept from the last build | on |
+   | `CAPITOL_API_REF` | Capitol API branch, tag or commit to run | `main` |
+   | `CAPITOL_TIMEOUT_MINUTES` | how long to wait for Capitol API to parse new PTRs | `150` |
+
+5. **Actions → Refresh data → Run workflow** for the first run, instead of waiting for the schedule.
+
+### 6.2 What runs
+
+| Workflow | When | What it does |
+|---|---|---|
+| `refresh-data.yml` | daily 09:23 UTC, or by hand | tests → restore caches → start Capitol API and refresh it → `build.py` → save caches → commit `web/data/` to `main` → deploy |
+| `deploy-pages.yml` | pushes to `main` that touch `web/`, by hand, or called by the refresh | tests (unless called by the refresh) → publish `web/` to GitHub Pages |
+| `test.yml` | pushes and pull requests | `pytest` and `npm test` |
+
+A run started by hand can choose its sources (e.g. `senate`), a Tiingo request limit, and `refresh_prices` (refetch all history; needs a paid plan).
+
+**House data in CI.** The job checks out `crnicholson/capitol-api`, restores its `cache/` folder from the previous run, starts it with `YEARS_START=2018` and the current year as `YEARS_END`, and calls `capitol_refresh.py`. That posts `/api/refresh` (only filings not yet cached are downloaded) and polls `/api/status` until the fetch stops. Only a cache marked `complete` is used (`--capitol-file`); otherwise the House trades of the previous build are kept.
+
+**Caches.** `pipeline/cache/` (Tiingo raw prices, eFD report pages, congress-legislators) and Capitol API's `cache/` are kept in the Actions cache, not in git. They are saved even when a step fails, so an interrupted run is resumed by the next one. GitHub drops cache entries that go unused for 7 days; if the schedule is paused that long, the next run starts the caches from scratch (slow, but nothing is lost from `web/data/`).
+
+**Failures.** A source that fails keeps its previous trades (section 3.2), the rest is still committed and deployed, and the run is then marked failed so GitHub emails you. A Capitol API refresh that runs out of time is only a warning: that's expected on the first runs.
+
+### 6.3 What to expect on the first runs
+
+- **Capitol API** has to parse every House PTR PDF since 2018. That likely takes several nightly runs at 150 minutes each; each run continues where the last stopped. Until it finishes, the House trades committed from your machine are kept.
+- **Senate eFD** downloads a few thousand reports on the first run (about an hour), then only new ones.
+- **Tiingo free plan:** about 50 requests per run before the hourly limit, so roughly 50 tickers are refreshed each night, SPY and new tickers first, then the stalest. The *pending* notice in the app shows how far the price cache has got. The paid Power plan refreshes everything every night.
+- `web/data/meta.json` changes on every build (`builtAt`), so there is one data commit a day.
+

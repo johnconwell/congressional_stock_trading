@@ -122,6 +122,7 @@ function memberKey(trade) {
  *   gender     ['F', 'M']
  *   ageDecade  [40, 50]          age on the trade's basis date
  *   region     ['West', ...]     STATE_REGION values
+ *   state      ['CA', 'TX']      two-letter state of the seat on the trade date
  *   chamber    ['house', 'senate']
  *   members    [memberId, ...]
  *   owner      ['self', 'spouse', 'joint', 'dependent', 'self_or_dependent', 'other']
@@ -136,6 +137,7 @@ export function matchesFilters(trade, filters = {}, onDate = trade.txDate) {
   if (active(f.owner) && !f.owner.includes(trade.owner)) return false;
   if (active(f.tickers) && !f.tickers.includes(trade.ticker)) return false;
   if (active(f.members) && !f.members.includes(memberKey(trade))) return false;
+  if (active(f.state) && !f.state.includes(trade.state)) return false;
   if (active(f.region) && !f.region.includes(regionOf(trade.state))) return false;
   if (active(f.ageDecade)) {
     const dec = ageDecadeOn(trade.birthDate, onDate);

@@ -5,10 +5,175 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Congressional Stock Tracker</title>
   <link rel="stylesheet" href="css/style.css">
+  <script src="vendor/chart.umd.min.js" defer></script>
+  <script src="vendor/chartjs-adapter-date-fns.bundle.min.js" defer></script>
+  <script src="vendor/hammer.min.js" defer></script>
+  <script src="vendor/chartjs-plugin-zoom.min.js" defer></script>
+  <script type="module" src="js/ui.js"></script>
 </head>
 <body>
-  <h1>Congressional Stock Tracker</h1>
-  <p>Under construction. The UI arrives in phase 4.</p>
-  <script type="module" src="js/ui.js"></script>
+  <header class="topbar">
+    <div>
+      <h1>Congressional Stock Tracker</h1>
+      <p class="subtitle">The combined portfolio rebuilt from House and Senate trade disclosures, against an S&amp;P 500 pool funded with the same cash flows.</p>
+    </div>
+    <p class="asof" id="asof"></p>
+  </header>
+
+  <div class="layout">
+    <aside class="controls" aria-label="Settings">
+      <form id="controls" autocomplete="off">
+        <fieldset>
+          <legend>Period</legend>
+          <label class="field">Start date <input type="date" name="start" id="start"></label>
+          <label class="field">End date <input type="date" name="end" id="end"></label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Amount estimator</legend>
+          <div class="segmented" role="radiogroup">
+            <label><input type="radio" name="estimator" value="low"><span>Low</span></label>
+            <label><input type="radio" name="estimator" value="mid"><span>Midpoint</span></label>
+            <label><input type="radio" name="estimator" value="high"><span>High</span></label>
+          </div>
+          <p class="hint">Disclosures give dollar ranges; pick which end to use.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Date basis</legend>
+          <div class="segmented" role="radiogroup">
+            <label><input type="radio" name="dateBasis" value="transaction"><span>Transaction</span></label>
+            <label><input type="radio" name="dateBasis" value="disclosure"><span>Disclosure</span></label>
+          </div>
+          <p class="hint">Disclosure date shows what an outside observer could have copied.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>One member</legend>
+          <label class="field field-stack">
+            <input type="search" id="member-search" list="member-options" placeholder="Search by name" aria-label="Open the view for one member">
+          </label>
+          <p class="hint">Opens the same chart for that member's trades only. Member names in the tables open it too.</p>
+        </fieldset>
+
+        <fieldset id="group-filters">
+          <legend>Members</legend>
+          <p class="hint group-off" hidden>Off while one member is shown.</p>
+          <div class="filter-group"><span class="filter-label">Chamber</span><div class="chips" data-filter="chamber"></div></div>
+          <div class="filter-group"><span class="filter-label">Party</span><div class="chips" data-filter="party"></div></div>
+          <div class="filter-group"><span class="filter-label">Gender</span><div class="chips" data-filter="gender"></div></div>
+          <div class="filter-group"><span class="filter-label">Age at trade</span><div class="chips" data-filter="ageDecade"></div></div>
+          <div class="filter-group"><span class="filter-label">Region</span><div class="chips" data-filter="region"></div></div>
+          <div class="filter-group">
+            <span class="filter-label">State</span>
+            <div class="picker" data-picker="state">
+              <div class="picked"></div>
+              <input type="search" list="state-options" placeholder="Add a state" aria-label="Add a state">
+            </div>
+          </div>
+          <div class="filter-group">
+            <span class="filter-label">Specific members</span>
+            <div class="picker" data-picker="members">
+              <div class="picked"></div>
+              <input type="search" list="member-options" placeholder="Add a member" aria-label="Add a member">
+            </div>
+          </div>
+          <p class="hint">No selection in a group means everyone.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Owner</legend>
+          <div class="chips" data-filter="owner"></div>
+          <p class="hint">Whose account the trade was in. <em>Self/dep.</em> is a House filing whose owner column couldn't be read.</p>
+        </fieldset>
+
+        <datalist id="member-options"></datalist>
+        <datalist id="state-options"></datalist>
+
+        <div class="form-actions">
+          <button type="button" id="reset" class="btn">Reset</button>
+          <button type="button" id="copy-link" class="btn btn-primary">Copy link</button>
+        </div>
+      </form>
+    </aside>
+
+    <main>
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+      <div id="coverage" class="notice" hidden></div>
+
+      <section id="member-view" class="member-view" hidden aria-label="Member"></section>
+
+      <section class="cards" id="cards" aria-label="Summary"></section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2 id="chart-title">Pool value over time</h2>
+          <div class="chart-toggles">
+            <label><input type="checkbox" id="showInvested"> Invested only (dashed)</label>
+            <label><input type="checkbox" id="showNetFlow"> Net contributions</label>
+            <label><input type="checkbox" id="logScale"> Log scale</label>
+            <button type="button" class="btn btn-small" id="reset-zoom" hidden>Reset zoom</button>
+          </div>
+        </div>
+        <div class="chart-wrap"><canvas id="chart" aria-label="Line chart of pool values"></canvas></div>
+        <p class="hint">Drag across the chart to zoom in, Shift+drag to pan, Ctrl+scroll to zoom.</p>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Holdings <span class="count" id="holdings-count"></span></h2>
+        </div>
+        <div class="table-wrap">
+          <table id="holdings" class="data">
+            <thead><tr>
+              <th data-sort="ticker">Ticker</th>
+              <th data-sort="shares" class="num">Shares</th>
+              <th data-sort="price" class="num">Price</th>
+              <th data-sort="value" class="num">Value</th>
+              <th data-sort="weight" class="num">% of pool</th>
+              <th data-sort="members">Held by</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Trade log <span class="count" id="log-count"></span></h2>
+          <div class="log-tools">
+            <input type="search" id="log-search" placeholder="Search member or ticker" aria-label="Search trades">
+            <select id="log-status" aria-label="Status">
+              <option value="">All trades</option>
+              <option value="applied">Applied</option>
+              <option value="skipped">Skipped</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="tradelog" class="data">
+            <thead><tr>
+              <th data-sort="date">Date</th>
+              <th data-sort="member">Member</th>
+              <th data-sort="owner">Owner</th>
+              <th data-sort="ticker">Ticker</th>
+              <th data-sort="type">Type</th>
+              <th data-sort="amount" class="num">Amount</th>
+              <th data-sort="price" class="num">Price</th>
+              <th data-sort="value" class="num">Value used</th>
+              <th data-sort="status">Status</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="pager" id="log-pager"></div>
+      </section>
+
+      <footer class="disclaimer">
+        For research and education, not investment advice. Disclosures show dollar ranges, are filed up to
+        45 days after the trade and are sometimes wrong, so the reconstructed portfolio is an estimate.
+      </footer>
+    </main>
+  </div>
 </body>
 </html>
