@@ -406,7 +406,7 @@ python -m http.server 8000
    |---|---|---|
    | `TIINGO_MAX_REQUESTS` | stop the price step after this many requests | until Tiingo refuses |
    | `CAPITOL_API` | `off` skips the House refresh; House trades are kept from the last build | on |
-   | `CAPITOL_API_REF` | Capitol API branch, tag or commit to run | `main` |
+   | `CAPITOL_API_REF` | Capitol API branch, tag or commit to run | `master` |
    | `CAPITOL_TIMEOUT_MINUTES` | how long to wait for Capitol API to parse new PTRs | `150` |
 
 5. **Actions → Refresh data → Run workflow** for the first run, instead of waiting for the schedule.

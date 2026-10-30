@@ -6,7 +6,7 @@
 #   TIINGO_MAX_REQUESTS     stop the price step after this many Tiingo requests
 #   CAPITOL_API             "off" to skip the House refresh (House trades are then kept
 #                           from the last build)
-#   CAPITOL_API_REF         Capitol API git ref to run (default: main)
+#   CAPITOL_API_REF         Capitol API git ref to run (default: master)
 #   CAPITOL_TIMEOUT_MINUTES how long to wait for Capitol API to parse new PTRs (default 150)
 #
 # The pipeline caches (Tiingo raw prices, eFD report pages, congress-legislators) and
@@ -89,7 +89,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: crnicholson/capitol-api
-          ref: ${{ vars.CAPITOL_API_REF || 'main' }}
+          ref: ${{ vars.CAPITOL_API_REF || 'master' }}
           path: capitol-api
 
       - name: Restore Capitol API cache
