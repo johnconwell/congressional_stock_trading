@@ -50,7 +50,7 @@ The two pools are rebuilt day by day from the start date to the end date.
 
 - **Positions are tracked per member** (one ledger per member and ticker), and the pool total is the sum. A sale by member X therefore can't sell shares bought by member Y.
 - **Sales with nothing to sell.** A member may sell a stock bought before the start date, or one the pool never saw. The sale is skipped and logged. The benchmark is not changed either, so both pools stay comparable.
-- **The benchmark sells the realized amount `S`**, not the reported amount `A`. Both pools then always have the same net contributions.
+- **The benchmark sells the realized amount `S`**, not the reported amount `A`. Both pools then have the same net contributions, unless the benchmark holds less SPY than `S`; it then sells all it has and the shortfall is logged (see 3.3).
 - **Weekends and holidays.** A trade on a non-trading day executes at the next trading day's close.
 - **Missing or delisted tickers.** If no price is available on the trade date, the trade is skipped and logged. If a held ticker stops reporting prices (delisting or merger), its last known close carries forward and the position is flagged.
 - **Price series.** Split-adjusted closing prices are used, so a split doesn't look like a crash. Dividends are not reinvested in either pool by default. An optional *total return* mode would use dividend-adjusted prices for both pools.
@@ -155,13 +155,25 @@ Hosting: any static host, such as GitHub Pages or Netlify, or `python -m http.se
 ]
 ```
 
-**`web/data/prices/NVDA.json`**: compact columns to keep the files small:
+**`web/data/prices/NVDA.json`**: compact columns to keep the files small. `close` is split-adjusted (not dividend-adjusted), rounded to 4 decimals, and starts at the ticker's first trade date (SPY starts at the earliest trade overall):
 
 ```json
 { "ticker": "NVDA", "dates": ["2025-01-02", "..."], "close": [138.31, "..."] }
 ```
 
-**`web/data/meta.json`**: build timestamp, date coverage by chamber, number of raw, kept and excluded records, exclusion counts by reason, flag counts, the list of tickers, and the tickers with no price data (filled in by phase 2). The full list of excluded records goes to `pipeline/cache/excluded.json`, which isn't published, for checking the rules.
+The file name is `<TICKER>.json`, with one exception: Windows can't create files named after devices (`CON`, `PRN`, `AUX`, `NUL`, `COM0`–`COM9`, `LPT0`–`LPT9`), so those get a trailing underscore, e.g. `CON_.json`. `meta.json` lists these in `prices.fileNames`, and the web app must use that map.
+
+**`web/data/meta.json`**: build timestamp, date coverage by chamber, number of raw, kept and excluded records, exclusion counts by reason, flag counts, the list of tickers, and `tickersWithoutPrices`. The price step adds a `prices` block:
+
+| Key | Meaning |
+|---|---|
+| `lastDate` | SPY's latest close, i.e. the default end date |
+| `files` / `fileNames` | number of price files; tickers whose file isn't `<TICKER>.json` |
+| `pending` | tickers not fetched yet (Tiingo limit reached, `--max-requests` used up, or no API key) |
+| `withoutPricesByReason` | `not_found` (Tiingo doesn't know the ticker), `no_data` (known, but no prices in range), `invalid_ticker` |
+| `endedEarly` | ticker → last close, for tickers that stopped reporting more than 10 days before SPY (delisted, merged or renamed) |
+| `errors`, `stopped` | per-ticker errors that will be retried; why fetching stopped early, if it did |
+ The full list of excluded records goes to `pipeline/cache/excluded.json`, which isn't published, for checking the rules.
 
 **Source data quirks (Capitol API).** Found while building phase 1, and handled in `normalize.py`:
 
@@ -170,24 +182,51 @@ Hosting: any static host, such as GitHub Pages or Netlify, or `python -m http.se
 - **Amendments.** Records carry no amendment flag. A trade that appears identically (member, owner, ticker, type, date, amount) in more than one filing is kept only from the latest filing. Identical rows inside one filing are separate lots and are all kept. An amendment that *changes* a trade can't be matched to the original, so both copies stay.
 - **Dates.** A few transaction dates fall after the filing date (typos). Those trades are excluded as `tx_after_disclosure`.
 
+**Price cache.** `pipeline/cache/prices/<TICKER>.json` keeps Tiingo's *raw* rows (close, adjClose, splitFactor, divCash). Each run only requests dates after the last cached one, then rebuilds the split-adjusted series from the full raw history, so a new split also re-adjusts older prices. The cached `adjClose` and `divCash` are there for the later total-return mode. A ticker fetched in the last 12 hours is skipped; an unknown ticker is asked about again after 30 days. `--refresh-prices` refetches everything (to pick up corrections Tiingo makes to old data).
+
+**Tiingo limits.** The free plan allows 50 requests an hour, 1,000 a day and **500 unique symbols a month**. Each ticker costs one request per run. The price step fetches SPY first, then tickers in order of dollar volume traded, and stops cleanly when Tiingo refuses a request. Everything fetched so far is cached, so the next run continues where it stopped. With the current ~1,160 tickers this means the free plan can't fill the cache in one month or keep every ticker updated daily; the paid Power plan removes the limit.
+
 ### 3.3 Simulation engine (`js/sim.js`)
 
-It is a pure function, so it is easy to test and has no side effects:
+It is a pure function, so it is easy to test and has no side effects. It never changes its inputs.
 
 ```
-simulate(trades, prices, { start, end, estimator, dateBasis, filters })
+simulate(trades, prices, { start, end, estimator, dateBasis, filters, benchmark, staleDays })
   → { dates[], congressValue[], congressCash[], spyValue[], spyCash[],
-      contributions[], holdings, tradeLog[] }
+      contributions[], congressNetFlow[], spyNetFlow[],
+      holdings[], tradeLog[], summary }
 ```
+
+| Option | Values | Default |
+|---|---|---|
+| `start`, `end` | ISO dates, inclusive | first / last SPY date |
+| `estimator` | `low`, `mid`, `high` | `mid` |
+| `dateBasis` | `transaction`, `disclosure` | `transaction` |
+| `filters` | lists for `party`, `gender`, `ageDecade` (age on the trade date, e.g. `60` = 60–69), `region` (Census regions; DC is South, territories are `Territories`), `chamber`, `members` (bioguide IDs), `owner`, `tickers`. An empty list means no restriction. | none |
+| `benchmark` | ticker whose dates are the trading calendar | `SPY` |
+| `staleDays` | calendar days without a close before a held ticker is flagged `ended` | `10` |
+
+`prices` is `{ TICKER: { dates, close } }`, i.e. the price files keyed by ticker.
 
 How it works:
 
-1. Filter the trades by date range and the user's filters, then group them by effective trading day.
+1. Filter the trades by date range (on the chosen date basis) and the user's filters, then move each one to its effective trading day (the next SPY date on or after it).
 2. Build the trading calendar from SPY's price dates.
 3. For each trading day: apply that day's trades in order (buys before sells, so a member's same-day round trip resolves correctly). Then value every position at that day's close, carrying the last known price forward when one is missing.
 4. Return the time series and the final ledgers.
 
-Complexity is O(days × open positions). Even with a decade of data that is well under a second in the browser.
+**Contributions.** Sale proceeds stay in the pool as cash, and buys are always new money (they don't draw down cash). So:
+
+- `contributions` is the cumulative dollars bought. It is identical for both pools by construction, and `gain = value − contributions`.
+- `congressNetFlow` / `spyNetFlow` are contributions minus realized sales, the "total bought minus total sold" line in 1.1. They are equal except when the benchmark can't sell the full `S` because it holds less SPY than that. This happens when the Congress positions have outperformed SPY by enough. The unsold part is logged per trade as `spyShortfall` and totalled in `summary.spyShortfall`.
+
+**Trade log entries** carry `basisDate`, effective `date`, `amount` (from the estimator), `status` (`applied` / `skipped`), `reason`, `price`, `shares` (negative for sales), `value` (dollars bought, or realized `S`), `capped` (the sale was reduced to the position's value), `spyShares` and `spyShortfall`. Skip reasons: `no_price_data` (no price file), `no_price_on_date` (outside the ticker's price range, e.g. after delisting), `no_holdings`, `no_trading_day` (no SPY close yet), `after_end` (a weekend trade whose next session is after the end date), `bad_amount`. Trades removed by the user's filters are not logged.
+
+**Holdings** list each open ticker with `shares`, `price`, `priceDate`, `value`, `weight` (share of the whole pool including cash), `ended` and the members holding it. **`summary`** has final value, cash, invested, gain and gain % for each pool, the difference, applied/skipped counts by reason, the total benchmark shortfall and the list of ended tickers.
+
+A price gap inside a ticker's range (a missing day) uses the previous close, both for valuation and for executing a trade.
+
+Complexity is O(days × open positions). On the current data (7,765 trades, 911 trading days) a full run takes under 100 ms in Node.
 
 ### 3.4 Technology choices
 
@@ -242,13 +281,13 @@ congressional_stock_tracker/
 - [x] Unit tests with recorded fixture responses.
 
 ### Phase 2: Price pipeline
-- [ ] `prices.py`: fetch split-adjusted daily closes from Tiingo for every traded ticker plus SPY, from the earliest trade date to today.
-- [ ] Local cache with incremental updates (only fetch dates after the last cached one), retries and rate limiting.
-- [ ] Record tickers that can't be found in `meta.json`.
+- [x] `prices.py`: fetch split-adjusted daily closes from Tiingo for every traded ticker plus SPY, from the earliest trade date to today.
+- [x] Local cache with incremental updates (only fetch dates after the last cached one), retries and rate limiting.
+- [x] Record tickers that can't be found in `meta.json`.
 
 ### Phase 3: Simulation engine
-- [ ] Write `sim.js` following the rules in section 1.2.
-- [ ] Fixture tests: a single buy; buy then partial sell; sell with no holdings (skipped); full sale; weekend trade; split day; delisted ticker; two members trading the same ticker; checking that both pools always have equal net contributions.
+- [x] Write `sim.js` following the rules in section 1.2.
+- [x] Fixture tests (`tests/sim.test.js`, run with `npm test`): a single buy; buy then partial sell; sell with no holdings (skipped); full sale; weekend trade; split day; delisted ticker; two members trading the same ticker; checking that both pools always have equal net contributions.
 
 ### Phase 4: Web UI
 - [ ] `index.html` with the controls panel, chart, summary cards, holdings table and trade log.
@@ -286,9 +325,13 @@ pip install -r requirements.txt
 export TIINGO_API_KEY=...        # Windows PowerShell: $env:TIINGO_API_KEY="..."
 python build.py --since 2018-01-01                         # reads CAPITOL_API_URL (default localhost:3000)
 python build.py --capitol-file ../../capitol-api/cache/trades.json   # or use its cache file directly
+python build.py --prices-only            # continue the price step after a Tiingo limit (reuses trades.json)
+python build.py --skip-prices ...        # trades only, no Tiingo calls
+python build.py --prices-only --max-requests 45   # stay under the free plan's hourly limit
 
 # Tests
-python -m pytest
+python -m pytest      # pipeline
+npm test              # simulation engine (Node 20+, from the repository root)
 
 # 2. Serve the web app
 cd ../web
