@@ -1,0 +1,62 @@
+# Publishes web/ to GitHub Pages (README phase 6).
+#
+# Runs when the web app changes on main, by hand, and from the nightly refresh after
+# it has committed new data (a commit pushed with GITHUB_TOKEN doesn't start other
+# workflows, so the refresh calls this one directly with the commit to publish).
+#
+# One-time setup: repository Settings -> Pages -> Build and deployment -> Source:
+# "GitHub Actions".
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/deploy-pages.yml"
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit to publish
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; a queued one waits rather than cancelling a live one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  test:
+    # The nightly refresh has already tested this commit's code.
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.ref == '')
+    uses: ./.github/workflows/test.yml
+
+  deploy:
+    needs: test
+    # Deploy when the tests passed, or were skipped because the refresh called us.
+    if: ${{ !cancelled() && (needs.test.result == 'success' || needs.test.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
