@@ -1,0 +1,216 @@
+[
+ {
+  "id": {
+   "bioguide": "S001191"
+  },
+  "name": {
+   "first": "Kyrsten",
+   "last": "Sinema",
+   "official_full": "Kyrsten Sinema"
+  },
+  "bio": {
+   "gender": "F",
+   "birthday": "1976-07-12"
+  },
+  "terms": [
+   {
+    "type": "rep",
+    "start": "2013-01-03",
+    "end": "2015-01-03",
+    "state": "AZ",
+    "party": "Democrat",
+    "district": 9
+   },
+   {
+    "type": "rep",
+    "start": "2015-01-06",
+    "end": "2017-01-03",
+    "state": "AZ",
+    "party": "Democrat",
+    "district": 9
+   },
+   {
+    "type": "rep",
+    "start": "2017-01-03",
+    "end": "2019-01-03",
+    "state": "AZ",
+    "district": 9,
+    "party": "Democrat"
+   },
+   {
+    "type": "sen",
+    "start": "2019-01-03",
+    "end": "2025-01-03",
+    "state": "AZ",
+    "class": 1,
+    "party": "Independent",
+    "party_affiliations": [
+     {
+      "start": "2019-01-03",
+      "end": "2022-12-08",
+      "party": "Democrat"
+     },
+     {
+      "start": "2022-12-09",
+      "end": "2025-01-03",
+      "party": "Independent",
+      "caucus": "Democrat"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": {
+   "bioguide": "C001078"
+  },
+  "name": {
+   "first": "Gerald",
+   "middle": "E.",
+   "last": "Connolly",
+   "official_full": "Gerald E. Connolly"
+  },
+  "bio": {
+   "birthday": "1950-03-30",
+   "gender": "M"
+  },
+  "terms": [
+   {
+    "type": "rep",
+    "start": "2009-01-06",
+    "end": "2011-01-03",
+    "state": "VA",
+    "district": 11,
+    "party": "Democrat"
+   },
+   {
+    "type": "rep",
+    "start": "2011-01-05",
+    "end": "2013-01-03",
+    "state": "VA",
+    "district": 11,
+    "party": "Democrat"
+   },
+   {
+    "type": "rep",
+    "start": "2013-01-03",
+    "end": "2015-01-03",
+    "state": "VA",
+    "party": "Democrat",
+    "district": 11
+   },
+   {
+    "type": "rep",
+    "start": "2015-01-06",
+    "end": "2017-01-03",
+    "state": "VA",
+    "party": "Democrat",
+    "district": 11
+   },
+   {
+    "type": "rep",
+    "start": "2017-01-03",
+    "end": "2019-01-03",
+    "state": "VA",
+    "district": 11,
+    "party": "Democrat"
+   },
+   {
+    "type": "rep",
+    "start": "2019-01-03",
+    "end": "2021-01-03",
+    "state": "VA",
+    "district": 11,
+    "party": "Democrat"
+   },
+   {
+    "type": "rep",
+    "start": "2021-01-03",
+    "end": "2023-01-03",
+    "state": "VA",
+    "district": 11,
+    "party": "Democrat"
+   },
+   {
+    "type": "rep",
+    "start": "2023-01-03",
+    "end": "2025-01-03",
+    "state": "VA",
+    "district": 11,
+    "party": "Democrat"
+   },
+   {
+    "type": "rep",
+    "start": "2025-01-03",
+    "end": "2025-05-21",
+    "state": "VA",
+    "district": 11,
+    "party": "Democrat"
+   }
+  ]
+ },
+ {
+  "id": {
+   "bioguide": "M001190"
+  },
+  "name": {
+   "first": "Markwayne",
+   "last": "Mullin",
+   "official_full": "Markwayne Mullin"
+  },
+  "bio": {
+   "gender": "M",
+   "birthday": "1977-07-26"
+  },
+  "terms": [
+   {
+    "type": "rep",
+    "start": "2013-01-03",
+    "end": "2015-01-03",
+    "state": "OK",
+    "party": "Republican",
+    "district": 2
+   },
+   {
+    "type": "rep",
+    "start": "2015-01-06",
+    "end": "2017-01-03",
+    "state": "OK",
+    "party": "Republican",
+    "district": 2
+   },
+   {
+    "type": "rep",
+    "start": "2017-01-03",
+    "end": "2019-01-03",
+    "state": "OK",
+    "district": 2,
+    "party": "Republican"
+   },
+   {
+    "type": "rep",
+    "start": "2019-01-03",
+    "end": "2021-01-03",
+    "state": "OK",
+    "district": 2,
+    "party": "Republican"
+   },
+   {
+    "type": "rep",
+    "start": "2021-01-03",
+    "end": "2023-01-03",
+    "state": "OK",
+    "district": 2,
+    "party": "Republican"
+   },
+   {
+    "type": "sen",
+    "start": "2023-01-03",
+    "end": "2026-03-23",
+    "state": "OK",
+    "class": 2,
+    "party": "Republican"
+   }
+  ]
+ }
+]

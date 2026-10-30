@@ -1,23 +1,32 @@
-"""Pipeline entry point: fetch -> normalize -> prices -> write web/data.
+"""Pipeline entry point: fetch -> normalize -> member metadata -> prices -> write web/data.
 
-    python build.py --since 2018-01-01                       # from a running Capitol API
-    python build.py --capitol-file path/to/trades.json       # from a saved response
+    python build.py --since 2018-01-01                       # House (Capitol API) + Senate (eFD)
+    python build.py --capitol-file path/to/trades.json       # House from a saved response
+    python build.py --sources senate                         # refresh the Senate only, keep House
+    python build.py --senate-offline                         # Senate from the eFD page cache
     python build.py --prices-only                            # reuse web/data/trades.json
     python build.py --capitol-file ... --skip-prices         # trades only, no Tiingo calls
+
+A source that isn't fetched (not in --sources, or its fetch failed) keeps its trades from
+the previous trades.json, so one source being down never wipes the other's data.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
 import config
+import members
 import prices
 from normalize import NormalizeResult, normalize
-from sources import CapitolApiSource
+from sources import CapitolApiSource, SenateEfdSource, TradeSource
+
+#: --sources names -> adapter ``name`` (the trade's ``source`` field)
+SOURCE_NAMES = {"house": CapitolApiSource.name, "senate": SenateEfdSource.name}
 
 
 def write_trades(trades: list[dict], path: Path) -> None:
@@ -27,9 +36,35 @@ def write_trades(trades: list[dict], path: Path) -> None:
     path.write_text("[\n" + ",\n".join(lines) + "\n]\n", encoding="utf-8")
 
 
-def build_meta(result: NormalizeResult, *, since: str | None, sources: list[str], raw_count: int) -> dict:
-    coverage: dict[str, dict] = {}
+def source_counts(result: NormalizeResult, raw_count: int) -> dict:
+    flags: dict[str, int] = {}
     for t in result.trades:
+        for f in t["flags"]:
+            flags[f] = flags.get(f, 0) + 1
+    return {
+        "raw": raw_count,
+        "kept": len(result.trades),
+        "excluded": len(result.excluded),
+        "excludedByReason": result.excluded_by_reason(),
+        "flags": flags,
+    }
+
+
+def sum_counts(blocks: list[dict]) -> dict:
+    total = {"raw": 0, "kept": 0, "excluded": 0, "excludedByReason": {}, "flags": {}}
+    for b in blocks:
+        for k in ("raw", "kept", "excluded"):
+            total[k] += b.get(k, 0)
+        for k in ("excludedByReason", "flags"):
+            for reason, n in b.get(k, {}).items():
+                total[k][reason] = total[k].get(reason, 0) + n
+    total["excludedByReason"] = dict(sorted(total["excludedByReason"].items(), key=lambda kv: -kv[1]))
+    return total
+
+
+def build_meta(trades: list[dict], *, since: str | None, counts_by_source: dict[str, dict]) -> dict:
+    coverage: dict[str, dict] = {}
+    for t in trades:
         c = coverage.setdefault(
             t["chamber"],
             {"trades": 0, "members": set(), "firstTxDate": t["txDate"], "lastTxDate": t["txDate"],
@@ -44,26 +79,42 @@ def build_meta(result: NormalizeResult, *, since: str | None, sources: list[str]
     for c in coverage.values():
         c["members"] = len(c["members"])
 
-    flags: dict[str, int] = {}
-    for t in result.trades:
-        for f in t["flags"]:
-            flags[f] = flags.get(f, 0) + 1
-
-    return {
+    meta = {
         "builtAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "since": since,
-        "sources": sources,
-        "counts": {
-            "raw": raw_count,
-            "kept": len(result.trades),
-            "excluded": len(result.excluded),
-            "excludedByReason": result.excluded_by_reason(),
-            "flags": flags,
-        },
-        "coverage": coverage,
-        "tickers": sorted({t["ticker"] for t in result.trades}),
+        "sources": sorted(counts_by_source),
+        "counts": sum_counts(list(counts_by_source.values())),
+        "countsBySource": counts_by_source,
+        "coverage": dict(sorted(coverage.items())),
+        "tickers": sorted({t["ticker"] for t in trades}),
         "tickersWithoutPrices": [],  # filled in by the price step
     }
+    run = config.ci_run()
+    if run:
+        meta["buildRun"] = run  # the GitHub Actions run that built this data
+    return meta
+
+
+def previous_build(out_dir: Path) -> tuple[list[dict], dict]:
+    """The trades.json and meta.json of the last build, if there is one."""
+    try:
+        trades = json.loads((out_dir / "trades.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return [], {}
+    try:
+        meta = json.loads((out_dir / "meta.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        meta = {}
+    return trades, meta
+
+
+def previous_counts(meta: dict, source: str, trades: list[dict]) -> dict:
+    by_source = meta.get("countsBySource") or {}
+    if source in by_source:
+        return by_source[source]
+    if meta.get("sources") == [source] and "counts" in meta:  # built before countsBySource existed
+        return meta["counts"]
+    return {"raw": len(trades), "kept": len(trades), "excluded": 0, "excludedByReason": {}, "flags": {}}
 
 
 def write_excluded(result: NormalizeResult, path: Path) -> None:
@@ -82,14 +133,78 @@ def write_meta(meta: dict, out_dir: Path) -> None:
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
 
-def run(*, since: str | None, source: CapitolApiSource, out_dir: Path, cache_dir: Path) -> tuple[dict, list[dict]]:
-    raws = list(source.fetch(since))
+@dataclass
+class BuildResult:
+    meta: dict
+    trades: list[dict]
+    fetched: list[str] = field(default_factory=list)      # sources fetched this run
+    carried: dict[str, int] = field(default_factory=dict)  # source -> trades kept from the last build
+    errors: dict[str, str] = field(default_factory=dict)   # source -> error message
+
+
+def run(*, since: str | None, sources: list[TradeSource], out_dir: Path, cache_dir: Path,
+        legislators: list[dict] | None = None, all_sources: list[str] | None = None) -> BuildResult:
+    """Fetch each source, normalize, add member metadata and write trades.json / meta.json.
+
+    ``all_sources`` names every source that may be in trades.json; those not fetched this
+    run (or whose fetch failed) keep their trades from the previous build.
+    """
+    prev_trades, prev_meta = previous_build(out_dir)
+    raws, fetched, errors, stats = [], [], {}, {}
+    raw_count: dict[str, int] = {}
+    for src in sources:
+        try:
+            batch = list(src.fetch(since))
+        except RuntimeError as err:
+            errors[src.name] = str(err)
+            continue
+        raws.extend(batch)
+        raw_count[src.name] = len(batch)
+        fetched.append(src.name)
+        if getattr(src, "stats", None):
+            stats[src.name] = dict(src.stats)
+
+    if not fetched:
+        raise RuntimeError("; ".join(errors.values()) or "no sources selected")
+
     result = normalize(raws, since=since)
-    meta = build_meta(result, since=since, sources=[source.name], raw_count=len(raws))
-    write_trades(result.trades, out_dir / "trades.json")
+    counts_by_source: dict[str, dict] = {}
+    for name in fetched:
+        part = NormalizeResult(
+            trades=[t for t in result.trades if t["source"] == name],
+            excluded=[e for e in result.excluded if e.raw.source == name],
+        )
+        counts_by_source[name] = source_counts(part, raw_count[name])
+
+    carried: dict[str, int] = {}
+    trades = list(result.trades)
+    keep_names = set(all_sources or []) | {s.name for s in sources}
+    for name in sorted(keep_names - set(fetched)):
+        old = [t for t in prev_trades if t.get("source") == name]
+        if old:
+            trades.extend(old)
+            carried[name] = len(old)
+            counts_by_source[name] = previous_counts(prev_meta, name, old)
+    trades.sort(key=lambda t: (t["txDate"], t["discDate"] or "", t["id"]))
+
+    member_report = None
+    if legislators is not None:
+        extras = {tid: raw.extra for tid, raw in result.raw_by_id.items() if raw.extra}
+        member_report = members.enrich(trades, members.Directory(legislators), extras=extras)
+
+    meta = build_meta(trades, since=since, counts_by_source=counts_by_source)
+    if member_report:
+        meta["members"] = member_report.to_meta()
+    if stats:
+        meta["sourceStats"] = stats
+    if carried:
+        meta["carriedOver"] = carried
+    if errors:
+        meta["sourceErrors"] = errors
+    write_trades(trades, out_dir / "trades.json")
     write_meta(meta, out_dir)
     write_excluded(result, cache_dir / "excluded.json")
-    return meta, result.trades
+    return BuildResult(meta=meta, trades=trades, fetched=fetched, carried=carried, errors=errors)
 
 
 def run_prices(trades: list[dict], meta: dict, *, out_dir: Path, cache_dir: Path,
@@ -123,12 +238,46 @@ def print_price_report(report: prices.PriceReport, has_client: bool) -> None:
         print("          Tiingo free tier: 50 requests/hour, 1,000/day, 500 unique symbols/month.")
 
 
+def make_sources(args, cache_dir: Path) -> list[TradeSource]:
+    out: list[TradeSource] = []
+    for name in args.sources:
+        if name == "house":
+            out.append(CapitolApiSource(args.capitol_url, file=args.capitol_file,
+                                        cache_path=cache_dir / "capitol_api.json"))
+        elif name == "senate":
+            out.append(SenateEfdSource(cache_dir=cache_dir / "senate_efd", offline=args.senate_offline,
+                                       delay=args.senate_delay, max_reports=args.senate_max_reports,
+                                       log=lambda m: print(m, file=sys.stderr)))
+    return out
+
+
+def parse_sources(text: str) -> list[str]:
+    names = [n.strip().lower() for n in text.split(",") if n.strip()]
+    bad = [n for n in names if n not in SOURCE_NAMES]
+    if bad or not names:
+        raise argparse.ArgumentTypeError(f"choose from {', '.join(SOURCE_NAMES)} (got {text!r})")
+    return list(dict.fromkeys(names))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build web/data from disclosures and prices.")
     parser.add_argument("--since", default="2018-01-01", help="earliest transaction date (YYYY-MM-DD)")
+    parser.add_argument("--sources", type=parse_sources, default=["house", "senate"],
+                        help="comma-separated: house (Capitol API), senate (eFD). Default: both. "
+                             "Sources left out keep their trades from the last build.")
     parser.add_argument("--capitol-url", default=config.capitol_api_url(),
                         help="Capitol API base URL (env CAPITOL_API_URL)")
     parser.add_argument("--capitol-file", help="read a saved Capitol API trades.json instead of the server")
+    parser.add_argument("--senate-offline", action="store_true",
+                        help="build Senate trades from the cached eFD reports only (no requests)")
+    parser.add_argument("--senate-delay", type=float, default=1.0,
+                        help="seconds between eFD requests (default 1)")
+    parser.add_argument("--senate-max-reports", type=int, default=None,
+                        help="download at most this many new eFD reports this run")
+    parser.add_argument("--no-members", action="store_true",
+                        help="don't add member metadata from congress-legislators")
+    parser.add_argument("--refresh-members", action="store_true",
+                        help="download the congress-legislators data even if the cache is fresh")
     parser.add_argument("--out", default=str(config.WEB_DATA_DIR), help="output folder")
     prices_group = parser.add_mutually_exclusive_group()
     prices_group.add_argument("--skip-prices", action="store_true", help="don't run the price step")
@@ -147,27 +296,47 @@ def main(argv: list[str] | None = None) -> int:
     if args.prices_only:
         return prices_only(out_dir, cache_dir, args)
 
-    source = CapitolApiSource(
-        args.capitol_url, file=args.capitol_file, cache_path=cache_dir / "capitol_api.json"
-    )
+    legislators = None
+    if not args.no_members:
+        legislators = members.load_legislators(cache_dir / "legislators.json", refresh=args.refresh_members,
+                                               log=lambda m: print(m, file=sys.stderr))
     try:
-        meta, trades = run(since=args.since, source=source, out_dir=out_dir, cache_dir=cache_dir)
+        res = run(since=args.since, sources=make_sources(args, cache_dir), out_dir=out_dir,
+                  cache_dir=cache_dir, legislators=legislators, all_sources=list(SOURCE_NAMES.values()))
     except RuntimeError as err:
         print(f"error: {err}", file=sys.stderr)
         return 1
+    meta = res.meta
 
+    print(f"since={args.since}  sources fetched: {', '.join(res.fetched)}")
+    for name, err in res.errors.items():
+        print(f"error: {name}: {err}", file=sys.stderr)
+    for name, n in res.carried.items():
+        print(f"{name}: not fetched this run; kept {n} trades from the last build")
+    for name in res.fetched:
+        c = meta["countsBySource"][name]
+        print(f"{name}: raw records {c['raw']}   kept {c['kept']}   excluded {c['excluded']}")
+        for reason, n in c["excludedByReason"].items():
+            print(f"  {n:>6}  {reason}")
+        for key, n in sorted(meta.get("sourceStats", {}).get(name, {}).items()):
+            print(f"  {key}: {n}")
     c = meta["counts"]
-    print(f"since={args.since}  source={'file ' + args.capitol_file if args.capitol_file else args.capitol_url}")
-    print(f"raw records: {c['raw']}   kept: {c['kept']}   excluded: {c['excluded']}")
-    for reason, n in c["excludedByReason"].items():
-        print(f"  {n:>6}  {reason}")
+    print(f"total: kept: {c['kept']}   excluded: {c['excluded']}")
     for chamber, cov in meta["coverage"].items():
         print(f"{chamber}: {cov['trades']} trades, {cov['members']} members, "
               f"{cov['firstTxDate']} to {cov['lastTxDate']}")
+    if "members" in meta:
+        m = meta["members"]
+        print(f"members: metadata for {m['resolved']} of {m['trades']} trades")
+        for name, n in list(m["unresolved"].items())[:10]:
+            print(f"  unresolved: {name} ({n} trades)")
+    elif not args.no_members:
+        print("members: congress-legislators data unavailable; using the sources' own metadata")
     print(f"wrote {out_dir / 'trades.json'} and meta.json ({len(meta['tickers'])} tickers)")
+    code = 1 if res.errors else 0
     if args.skip_prices:
-        return 0
-    return price_step(trades, meta, out_dir, cache_dir, args)
+        return code
+    return price_step(res.trades, meta, out_dir, cache_dir, args) or code
 
 
 def price_step(trades: list[dict], meta: dict, out_dir: Path, cache_dir: Path, args) -> int:

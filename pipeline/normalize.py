@@ -34,9 +34,17 @@ TX_TYPES = {
     "SALE (PARTIAL)": "sell",
     "S": "sell_full",
     "SALE (FULL)": "sell_full",
+    # Senate eFD sometimes writes a plain "Sale". It is treated as a partial sale; the
+    # simulation caps a sale at the member's position anyway.
+    "SALE": "sell",
 }
 
-ASSET_TYPES = {"ST": "stock", "EF": "etf", "RE": "reit"}
+ASSET_TYPES = {
+    "ST": "stock", "EF": "etf", "RE": "reit",
+    # Senate eFD writes the type out. Its "Other Securities" mixes ETFs, funds and notes,
+    # so it is excluded like the House's OT.
+    "STOCK": "stock",
+}
 
 OWNERS = {
     None: "self",
@@ -45,6 +53,11 @@ OWNERS = {
     "SP": "spouse",
     "JT": "joint",
     "DC": "dependent",
+    # Senate eFD wording
+    "SPOUSE": "spouse",
+    "JOINT": "joint",
+    "CHILD": "dependent",
+    "DEPENDENT": "dependent",
     # Capitol API writes DC when it can't read the owner column. In House PTRs a blank
     # owner means the member, so its DC is usually the member and only sometimes a child.
     "SELF_OR_DC": "self_or_dependent",
@@ -161,6 +174,7 @@ class Exclusion:
 class NormalizeResult:
     trades: list[dict] = field(default_factory=list)
     excluded: list[Exclusion] = field(default_factory=list)
+    raw_by_id: dict[str, RawTrade] = field(default_factory=dict)  # kept trade id -> its source record
 
     def excluded_by_reason(self) -> dict[str, int]:
         return dict(Counter(e.reason for e in self.excluded).most_common())
@@ -285,4 +299,5 @@ def normalize(raws, since: str | None = None) -> NormalizeResult:
             t["id"] = f"{t['id']}~{seen[t['id']]}"
     trades.sort(key=lambda t: (t["txDate"], t["discDate"] or "", t["id"]))
     result.trades = trades
+    result.raw_by_id = {t["id"]: raw for t, raw in pairs}
     return result

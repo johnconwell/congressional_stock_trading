@@ -10,7 +10,8 @@ For every traded ticker plus the SPY benchmark this module
 3. writes ``web/data/prices/<FILE>.json`` as ``{"ticker", "dates", "close"}``.
 
 The free Tiingo plan allows 50 requests an hour, 1,000 a day and 500 unique symbols
-a month. A run therefore stops cleanly when Tiingo reports a limit (or when
+a month. Tickers are fetched SPY first, then new tickers by dollar volume, then the
+least recently fetched (``fetch_order``). A run stops cleanly when Tiingo reports a limit (or when
 ``max_requests`` is used up): everything fetched so far is already cached, and the
 next run carries on with the tickers that are still pending.
 """
@@ -308,6 +309,37 @@ def ticker_priority(trades: Iterable[dict]) -> dict[str, float]:
     return vol
 
 
+def fetch_order(starts: dict[str, str], volume: dict[str, float],
+                entries: dict[str, "CacheEntry | None"]) -> list[str]:
+    """The order in which to ask Tiingo for tickers.
+
+    SPY first; then tickers with no cached prices, most money traded first; then the
+    cached ones, least recently fetched first. With a request budget smaller than the
+    number of tickers (Tiingo's free plan, or ``--max-requests``), successive runs
+    therefore cycle through every ticker instead of refreshing the same top ones.
+    """
+    def key(tk: str):
+        entry = entries.get(tk)
+        cached = entry is not None and entry.status == "ok" and bool(entry.rows)
+        fetched = (entry.fetched_at or "") if cached else ""
+        return (tk != BENCHMARK, cached, _fetched_sort_key(fetched), -volume.get(tk, 0.0), tk)
+
+    return sorted(starts, key=key)
+
+
+def _fetched_sort_key(stamp: str) -> float:
+    """Seconds since the epoch for a fetched_at stamp; 0 for a missing or bad one."""
+    if not stamp:
+        return 0.0
+    try:
+        then = datetime.fromisoformat(stamp)
+    except ValueError:
+        return 0.0
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=timezone.utc)
+    return then.timestamp()
+
+
 def update_prices(
     trades: list[dict],
     *,
@@ -335,8 +367,8 @@ def update_prices(
 
     starts = ticker_start_dates(trades)
     volume = ticker_priority(trades)
-    # SPY first, then the tickers with the most money traded.
-    order = sorted(starts, key=lambda t: (t != BENCHMARK, -volume.get(t, 0.0), t))
+    loaded = {tk: cache.load(tk) for tk in starts if valid_ticker(tk)}
+    order = fetch_order(starts, volume, loaded)
 
     entries: dict[str, CacheEntry] = {}
     budget_left = max_requests
@@ -344,7 +376,7 @@ def update_prices(
         if not valid_ticker(tk):
             report.without_prices.setdefault("invalid_ticker", []).append(tk)
             continue
-        entry = cache.load(tk)
+        entry = loaded[tk]
         need_from = starts[tk]
         plan = _plan(entry, need_from, now, max_age_hours, retry_missing_days, refresh)
         if plan is None:

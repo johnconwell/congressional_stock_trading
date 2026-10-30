@@ -219,6 +219,36 @@ def test_max_requests_budget(tmp_path):
     assert report.stopped == "max_requests reached"
 
 
+def test_limited_budget_rotates_through_cached_tickers(tmp_path):
+    """Nightly runs with a small budget refresh the stalest tickers, not the same top ones."""
+    from datetime import timedelta
+    table = {"SPY": SPY, "AAA": SPY, "BBB": SPY, "CCC": SPY}
+    trades = [trade("AAA", "2026-10-26", 1_000_001, 5_000_000), trade("BBB", "2026-10-26", 15_001, 50_000),
+              trade("CCC", "2026-10-26")]
+    kw = dict(client=None, cache_dir=tmp_path / "cache", out_dir=tmp_path / "out")
+    update_prices(trades, client=client(FakeSession(table)), cache_dir=kw["cache_dir"],
+                  out_dir=kw["out_dir"], now=NOW)  # fill the cache
+
+    seen = []
+    for day in range(1, 4):  # three nights, two requests each: SPY + one other
+        s = FakeSession(table)
+        update_prices(trades, client=client(s), cache_dir=kw["cache_dir"], out_dir=kw["out_dir"],
+                      now=NOW + timedelta(days=day), max_requests=2)
+        seen.append([c[0] for c in s.calls])
+    assert seen == [["SPY", "AAA"], ["SPY", "BBB"], ["SPY", "CCC"]]
+
+
+def test_new_tickers_are_fetched_before_refreshing_cached_ones(tmp_path):
+    from datetime import timedelta
+    table = {"SPY": SPY, "AAA": SPY, "NEW": SPY}
+    run(tmp_path, [trade("AAA", "2026-10-26", 1_000_001, 5_000_000)], FakeSession(table))
+    s = FakeSession(table)
+    update_prices([trade("AAA", "2026-10-26", 1_000_001, 5_000_000), trade("NEW", "2026-10-26")],
+                  client=client(s), cache_dir=tmp_path / "cache", out_dir=tmp_path / "out",
+                  now=NOW + timedelta(days=1), max_requests=2)
+    assert [c[0] for c in s.calls] == ["SPY", "NEW"]  # smaller volume, but nothing cached yet
+
+
 def test_unknown_ticker_is_cached_and_not_retried_soon(tmp_path):
     s = FakeSession({"SPY": SPY}, missing={"ZZZZ"})
     report = run(tmp_path, [trade("ZZZZ", "2026-10-26")], s)

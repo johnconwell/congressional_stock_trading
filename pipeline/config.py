@@ -32,3 +32,14 @@ def tiingo_api_key(required: bool = True) -> str | None:
 def capitol_api_url() -> str:
     """Base URL of the self-hosted Capitol API (env CAPITOL_API_URL)."""
     return os.environ.get("CAPITOL_API_URL", "").strip() or "http://localhost:3000"
+
+
+def ci_run() -> dict | None:
+    """The GitHub Actions run building the data, if any: {"url", "event"}."""
+    run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
+    repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if not (run_id and repo):
+        return None
+    server = os.environ.get("GITHUB_SERVER_URL", "").strip() or "https://github.com"
+    return {"url": f"{server}/{repo}/actions/runs/{run_id}",
+            "event": os.environ.get("GITHUB_EVENT_NAME", "").strip() or None}
