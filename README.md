@@ -15,7 +15,8 @@ A browser-based app that rebuilds the combined stock portfolio of members of the
    - **End date.** Defaults to the latest available closing price.
    - **Amount estimator.** Disclosures give ranges such as `$15,001 – $50,000`. The user picks `Low`, `Midpoint` (the default) or `High`.
    - **Date basis.** Choose `Transaction date` (the default) or `Disclosure date`. Disclosure date shows what an outside observer could actually have copied.
-   - **Filters** (optional, phase 2): chamber, party, individual members, and owner (self, spouse, joint, dependent).
+   - **Member filters** (see 1.3): party, gender, age decade and geographic region, each with multiple selections allowed.
+   - **Other filters** (later phase): chamber, individual members, and owner (self, spouse, joint, dependent).
 2. **Main chart.** A line chart of daily values:
    - **Congress pool total value.** Stock holdings plus cash.
    - **S&P 500 pool total value.** SPY holdings plus cash.
@@ -128,20 +129,27 @@ Hosting: any static host, such as GitHub Pages or Netlify, or `python -m http.se
 ```json
 [
   {
-    "id": "house-20012345-3",
+    "id": "house-20012345-3",     // <chamber>-<source id>
     "chamber": "house",
     "member": "Jane Doe",
+    "memberId": "D000001",      // bioguide ID
     "party": "D",
     "state": "CA",
-    "owner": "spouse",
-    "ticker": "NVDA",
-    "assetType": "stock",
+    "district": 12,
+    "gender": "F",
+    "birthDate": "1960-01-01",
+    "owner": "spouse",          // self | spouse | joint | dependent | self_or_dependent | other
+    "ticker": "NVDA",           // Tiingo style: BRK.B -> BRK-B
+    "assetName": "NVIDIA Corporation - Common Stock",
+    "assetType": "stock",       // stock | etf | reit
     "type": "buy",              // buy | sell | sell_full
     "txDate": "2025-03-14",
     "discDate": "2025-04-02",
     "amountLow": 15001,
     "amountHigh": 50000,
+    "flags": [],                // amount_bracket_inferred | amount_open_ended
     "source": "capitol-api",
+    "filingId": "20012345",
     "sourceUrl": "https://..."
   }
 ]
@@ -153,7 +161,14 @@ Hosting: any static host, such as GitHub Pages or Netlify, or `python -m http.se
 { "ticker": "NVDA", "dates": ["2025-01-02", "..."], "close": [138.31, "..."] }
 ```
 
-**`web/data/meta.json`**: build timestamp, date coverage by chamber, number of trades by status, and the list of tickers with no price data.
+**`web/data/meta.json`**: build timestamp, date coverage by chamber, number of raw, kept and excluded records, exclusion counts by reason, flag counts, the list of tickers, and the tickers with no price data (filled in by phase 2). The full list of excluded records goes to `pipeline/cache/excluded.json`, which isn't published, for checking the rules.
+
+**Source data quirks (Capitol API).** Found while building phase 1, and handled in `normalize.py`:
+
+- **Owner.** Capitol API writes `DC` (dependent child) whenever it can't read the owner column. In a House PTR a blank owner means the member, so most `DC` rows are really the member's own trades. These are stored as `self_or_dependent`. Only `SP` (spouse) and `JT` (joint) are reliable.
+- **Truncated amounts.** When a range wraps onto two lines in the PDF, only the floor survives (`$15,001`). A floor that matches a standard bracket is expanded to the full bracket and flagged `amount_bracket_inferred`. That was about 18% of kept trades in the sample.
+- **Amendments.** Records carry no amendment flag. A trade that appears identically (member, owner, ticker, type, date, amount) in more than one filing is kept only from the latest filing. Identical rows inside one filing are separate lots and are all kept. An amendment that *changes* a trade can't be matched to the original, so both copies stay.
+- **Dates.** A few transaction dates fall after the filing date (typos). Those trades are excluded as `tx_after_disclosure`.
 
 ### 3.3 Simulation engine (`js/sim.js`)
 
@@ -216,15 +231,15 @@ congressional_stock_tracker/
 ## 4. Implementation plan
 
 ### Phase 0: Project setup
-- [ ] Create the repository layout, `.gitignore` (cache folders, `.env`) and `requirements.txt`.
-- [ ] Get a Tiingo API key and store it in `.env` / repository secrets as `TIINGO_API_KEY`.
+- [x] Create the repository layout, `.gitignore` (cache folders, `.env`) and `requirements.txt`.
+- [ ] Get a Tiingo API key and store it in `.env` / repository secrets as `TIINGO_API_KEY`. (`.env.example` is the template; `python pipeline/build.py` reports whether the key is found.)
 
 ### Phase 1: Trade data pipeline
-- [ ] Define the `TradeSource` interface and the normalized trade schema (section 3.2).
-- [ ] Write the first adapter, **Capitol API** (House, 2018 onward).
-- [ ] `normalize.py`: map transaction types (`P` → buy, `S (partial)` → sell, `S` → sell_full, `E` → excluded), parse amount ranges, clean up tickers (strip suffixes, map class shares such as `BRK.B`), drop non-equity assets and record why, and remove trades filed by both an original and an amended PTR.
-- [ ] Write `trades.json` and `meta.json`.
-- [ ] Unit tests with recorded fixture responses.
+- [x] Define the `TradeSource` interface and the normalized trade schema (section 3.2).
+- [x] Write the first adapter, **Capitol API** (House, 2018 onward).
+- [x] `normalize.py`: map transaction types (`P` → buy, `S (partial)` → sell, `S` → sell_full, `E` → excluded), parse amount ranges, clean up tickers (strip suffixes, map class shares such as `BRK.B`), drop non-equity assets and record why, and remove trades filed by both an original and an amended PTR.
+- [x] Write `trades.json` and `meta.json`.
+- [x] Unit tests with recorded fixture responses.
 
 ### Phase 2: Price pipeline
 - [ ] `prices.py`: fetch split-adjusted daily closes from Tiingo for every traded ticker plus SPY, from the earliest trade date to today.
@@ -261,11 +276,19 @@ congressional_stock_tracker/
 ## 5. Running locally (once implemented)
 
 ```bash
+# 0. Run Capitol API (separate folder). Set YEARS_START=2018 in its .env for full history;
+#    the first start parses every PTR PDF and takes a while.
+git clone https://github.com/crnicholson/capitol-api && cd capitol-api && npm install && npm start
+
 # 1. Build data
 cd pipeline
 pip install -r requirements.txt
 export TIINGO_API_KEY=...        # Windows PowerShell: $env:TIINGO_API_KEY="..."
-python build.py --since 2018-01-01
+python build.py --since 2018-01-01                         # reads CAPITOL_API_URL (default localhost:3000)
+python build.py --capitol-file ../../capitol-api/cache/trades.json   # or use its cache file directly
+
+# Tests
+python -m pytest
 
 # 2. Serve the web app
 cd ../web

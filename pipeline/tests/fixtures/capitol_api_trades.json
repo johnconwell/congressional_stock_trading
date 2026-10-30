@@ -1,0 +1,527 @@
+{
+ "metadata": {
+  "note": "Recorded Capitol API records (cache/trades.json), person.terms removed"
+ },
+ "trades": [
+  {
+   "id": "20030608-1",
+   "owner": "SP",
+   "asset": {
+    "name": "Intuit Inc. - Common Stock",
+    "ticker": "INTU",
+    "type": "ST",
+    "typeDescription": "Stocks (including ADRs)"
+   },
+   "transaction": {
+    "type": "P",
+    "description": "Purchase",
+    "category": "buy",
+    "tradeDate": "2025-06-20",
+    "notificationDate": "2025-07-03",
+    "filingDate": "2025-07-15",
+    "amount": "$1,001 - $15,000",
+    "amountMin": 1001,
+    "amountMax": 15000,
+    "capitalGains": null,
+    "price": 761.14
+   },
+   "filing": {
+    "docId": "20030608",
+    "year": 2025,
+    "pdfUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2025/20030608.pdf"
+   },
+   "person": {
+    "bioguideId": "A000372",
+    "name": "Rick W. Allen",
+    "firstName": "Rick",
+    "lastName": "Allen",
+    "state": "GA",
+    "district": 12,
+    "party": "Republican",
+    "phone": "202-225-2823",
+    "gender": "M",
+    "birthday": "1951-11-07"
+   }
+  },
+  {
+   "id": "20026724-1",
+   "owner": "JT",
+   "asset": {
+    "name": "Dominion Energy, Inc. Common Stock",
+    "ticker": "D",
+    "type": "ST",
+    "typeDescription": "Stocks (including ADRs)"
+   },
+   "transaction": {
+    "type": "S (partial)",
+    "description": "Sale (Partial)",
+    "category": "sell",
+    "tradeDate": "2025-02-05",
+    "notificationDate": "2025-02-05",
+    "filingDate": "2025-02-06",
+    "amount": "$1,001 - $15,000",
+    "amountMin": 1001,
+    "amountMax": 15000,
+    "capitalGains": null,
+    "price": 53.96
+   },
+   "filing": {
+    "docId": "20026724",
+    "year": 2025,
+    "pdfUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2025/20026724.pdf"
+   },
+   "person": {
+    "bioguideId": "C001078",
+    "name": "Gerald E. Connolly",
+    "firstName": "Gerald",
+    "lastName": "Connolly",
+    "state": "VA",
+    "district": 11,
+    "party": "Democrat",
+    "phone": "202-225-1492",
+    "gender": "M",
+    "birthday": "1950-03-30"
+   }
+  },
+  {
+   "id": "20032062-1",
+   "owner": "DC",
+   "asset": {
+    "name": "GSK plc American Depositary Shares",
+    "ticker": "GSK",
+    "type": "ST",
+    "typeDescription": "Stocks (including ADRs)"
+   },
+   "transaction": {
+    "type": "S",
+    "description": "Sale (Full)",
+    "category": "sell",
+    "tradeDate": "2025-07-28",
+    "notificationDate": "2025-08-11",
+    "filingDate": "2025-09-10",
+    "amount": "$1,001 - $15,000",
+    "amountMin": 1001,
+    "amountMax": 15000,
+    "capitalGains": null,
+    "price": 37.45
+   },
+   "filing": {
+    "docId": "20032062",
+    "year": 2025,
+    "pdfUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2025/20032062.pdf"
+   },
+   "person": {
+    "bioguideId": "A000055",
+    "name": "Robert B. Aderholt",
+    "firstName": "Robert",
+    "lastName": "Aderholt",
+    "state": "AL",
+    "district": 4,
+    "party": "Republican",
+    "phone": "202-225-4876",
+    "gender": "M",
+    "birthday": "1965-07-22"
+   }
+  },
+  {
+   "id": "20026517-1",
+   "owner": "JT",
+   "asset": {
+    "name": "Dallas Tex Area Rapid 5.00% 12/01/25",
+    "ticker": null,
+    "type": "GS",
+    "typeDescription": "Government Securities and Agency Debt"
+   },
+   "transaction": {
+    "type": "E",
+    "description": "Exchange",
+    "category": "exchange",
+    "tradeDate": "2024-12-02",
+    "notificationDate": "2025-01-06",
+    "filingDate": "2025-01-06",
+    "amount": "$1,001 - $15,000",
+    "amountMin": 1001,
+    "amountMax": 15000,
+    "capitalGains": null,
+    "price": null
+   },
+   "filing": {
+    "docId": "20026517",
+    "year": 2025,
+    "pdfUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2025/20026517.pdf"
+   },
+   "person": {
+    "bioguideId": "B001292",
+    "name": "Donald S. Beyer, Jr.",
+    "firstName": "Donald",
+    "lastName": "Beyer",
+    "state": "VA",
+    "district": 8,
+    "party": "Democrat",
+    "phone": "202-225-4376",
+    "gender": "M",
+    "birthday": "1950-06-20"
+   }
+  },
+  {
+   "id": "20026537-2",
+   "owner": "DC",
+   "asset": {
+    "name": "SPUS TREASU NOTE 4.375% DUE 12/15/26 (91282CJP7)",
+    "ticker": null,
+    "type": "GS",
+    "typeDescription": "Government Securities and Agency Debt"
+   },
+   "transaction": {
+    "type": "P",
+    "description": "Purchase",
+    "category": "buy",
+    "tradeDate": "2024-12-03",
+    "notificationDate": "2025-01-08",
+    "filingDate": "2025-01-16",
+    "amount": "$100,001",
+    "amountMin": 100001,
+    "amountMax": 100001,
+    "capitalGains": null,
+    "price": null
+   },
+   "filing": {
+    "docId": "20026537",
+    "year": 2025,
+    "pdfUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2025/20026537.pdf"
+   },
+   "person": {
+    "bioguideId": "A000372",
+    "name": "Rick W. Allen",
+    "firstName": "Rick",
+    "lastName": "Allen",
+    "state": "GA",
+    "district": 12,
+    "party": "Republican",
+    "phone": "202-225-2823",
+    "gender": "M",
+    "birthday": "1951-11-07"
+   }
+  },
+  {
+   "id": "20024346-20",
+   "owner": "DC",
+   "asset": {
+    "name": "Berkshire Hathaway Inc. New Common Stock",
+    "ticker": "BRK.B",
+    "type": "OP",
+    "typeDescription": "Options"
+   },
+   "transaction": {
+    "type": "S",
+    "description": "Sale (Full)",
+    "category": "sell",
+    "tradeDate": "2025-01-15",
+    "notificationDate": "2025-01-15",
+    "filingDate": "2025-02-13",
+    "amount": "$15,001",
+    "amountMin": 15001,
+    "amountMax": 15001,
+    "capitalGains": null,
+    "price": 450.03
+   },
+   "filing": {
+    "docId": "20024346",
+    "year": 2025,
+    "pdfUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2025/20024346.pdf"
+   },
+   "person": {
+    "bioguideId": "B001327",
+    "name": "Robert P. Bresnahan, Jr.",
+    "firstName": "Robert",
+    "lastName": "Bresnahan",
+    "state": "PA",
+    "district": 8,
+    "party": "Republican",
+    "phone": "202-225-5546",
+    "gender": "M",
+    "birthday": "1990-04-22"
+   }
+  },
+  {
+   "id": "20032149-22",
+   "owner": "SP",
+   "asset": {
+    "name": "Berkshire Hathaway Inc. New Common Stock",
+    "ticker": "BRK.B",
+    "type": "ST",
+    "typeDescription": "Stocks (including ADRs)"
+   },
+   "transaction": {
+    "type": "S",
+    "description": "Sale (Full)",
+    "category": "sell",
+    "tradeDate": "2025-03-18",
+    "notificationDate": "2025-08-11",
+    "filingDate": "2025-10-05",
+    "amount": "$15,001",
+    "amountMin": 15001,
+    "amountMax": 15001,
+    "capitalGains": null,
+    "price": 523.01
+   },
+   "filing": {
+    "docId": "20032149",
+    "year": 2025,
+    "pdfUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2025/20032149.pdf"
+   },
+   "person": {
+    "bioguideId": "B001325",
+    "name": "Sheri Biggs",
+    "firstName": "Sheri",
+    "lastName": "Biggs",
+    "state": "SC",
+    "district": 3,
+    "party": "Republican",
+    "phone": "202-225-5301",
+    "gender": "F",
+    "birthday": "1970-03-28"
+   }
+  },
+  {
+   "id": "20026537-1",
+   "owner": "SP",
+   "asset": {
+    "name": "Rollins, Inc. Common Stock",
+    "ticker": "ROL",
+    "type": "ST",
+    "typeDescription": "Stocks (including ADRs)"
+   },
+   "transaction": {
+    "type": "P",
+    "description": "Purchase",
+    "category": "buy",
+    "tradeDate": "2024-12-12",
+    "notificationDate": "2025-01-08",
+    "filingDate": "2025-01-16",
+    "amount": "$15,001",
+    "amountMin": 15001,
+    "amountMax": 15001,
+    "capitalGains": null,
+    "price": 49.01
+   },
+   "filing": {
+    "docId": "20026537",
+    "year": 2025,
+    "pdfUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2025/20026537.pdf"
+   },
+   "person": {
+    "bioguideId": "A000372",
+    "name": "Rick W. Allen",
+    "firstName": "Rick",
+    "lastName": "Allen",
+    "state": "GA",
+    "district": 12,
+    "party": "Republican",
+    "phone": "202-225-2823",
+    "gender": "M",
+    "birthday": "1951-11-07"
+   }
+  },
+  {
+   "id": "20030236-1",
+   "owner": "DC",
+   "asset": {
+    "name": "New Water Capital Partners II, LP (GLAS Funds, LP)",
+    "ticker": null,
+    "type": "HN",
+    "typeDescription": "Hedge Funds & Private Equity Funds (non-EIF)"
+   },
+   "transaction": {
+    "type": "P",
+    "description": "Purchase",
+    "category": "buy",
+    "tradeDate": "2025-04-03",
+    "notificationDate": "2025-04-28",
+    "filingDate": "2025-04-28",
+    "amount": "$823",
+    "amountMin": 823,
+    "amountMax": 823,
+    "capitalGains": null,
+    "price": null
+   },
+   "filing": {
+    "docId": "20030236",
+    "year": 2025,
+    "pdfUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2025/20030236.pdf"
+   },
+   "person": {
+    "bioguideId": "M001222",
+    "name": "Max L. Miller",
+    "firstName": "Max",
+    "lastName": "Miller",
+    "state": "OH",
+    "district": 7,
+    "party": "Republican",
+    "phone": "202-225-3876",
+    "gender": "M",
+    "birthday": "1988-11-13"
+   }
+  },
+  {
+   "id": "20029068-1",
+   "owner": "DC",
+   "asset": {
+    "name": "Capital One Financial Corporation Depositary shares each representing a 1/40th interest in a share of Fixed Rate Non-Cumulative Perpetual Preferred Stock, Series I of the Issuer (COF$I)",
+    "ticker": null,
+    "type": "ST",
+    "typeDescription": "Stocks (including ADRs)"
+   },
+   "transaction": {
+    "type": "P",
+    "description": "Purchase",
+    "category": "buy",
+    "tradeDate": "2025-03-03",
+    "notificationDate": "2025-04-03",
+    "filingDate": "2025-04-03",
+    "amount": "$1,001 - $15,000",
+    "amountMin": 1001,
+    "amountMax": 15000,
+    "capitalGains": null,
+    "price": null
+   },
+   "filing": {
+    "docId": "20029068",
+    "year": 2025,
+    "pdfUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2025/20029068.pdf"
+   },
+   "person": {
+    "bioguideId": "D000628",
+    "name": "Neal P. Dunn",
+    "firstName": "Neal",
+    "lastName": "Dunn",
+    "state": "FL",
+    "district": 2,
+    "party": "Republican",
+    "phone": "202-225-5235",
+    "gender": "M",
+    "birthday": "1953-02-16"
+   }
+  },
+  {
+   "id": "20030312-4",
+   "owner": "DC",
+   "asset": {
+    "name": "Netflix, Inc. - Common Stock",
+    "ticker": "NFLX",
+    "type": "ST",
+    "typeDescription": "Stocks (including ADRs)"
+   },
+   "transaction": {
+    "type": "S",
+    "description": "Sale (Full)",
+    "category": "sell",
+    "tradeDate": "2025-05-17",
+    "notificationDate": "2025-05-17",
+    "filingDate": "2025-05-11",
+    "amount": "$1,001 - $15,000",
+    "amountMin": 1001,
+    "amountMax": 15000,
+    "capitalGains": null,
+    "price": 119.15
+   },
+   "filing": {
+    "docId": "20030312",
+    "year": 2025,
+    "pdfUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2025/20030312.pdf"
+   },
+   "person": {
+    "bioguideId": "B001327",
+    "name": "Robert P. Bresnahan, Jr.",
+    "firstName": "Robert",
+    "lastName": "Bresnahan",
+    "state": "PA",
+    "district": 8,
+    "party": "Republican",
+    "phone": "202-225-5546",
+    "gender": "M",
+    "birthday": "1990-04-22"
+   }
+  },
+  {
+   "id": "20030155-1",
+   "owner": "DC",
+   "asset": {
+    "name": "Illumina, Inc. - Common Stock",
+    "ticker": "ILMN",
+    "type": "ST",
+    "typeDescription": "Stocks (including ADRs)"
+   },
+   "transaction": {
+    "type": "P",
+    "description": "Purchase",
+    "category": "buy",
+    "tradeDate": "2025-04-01",
+    "notificationDate": "2025-04-04",
+    "filingDate": "2025-04-18",
+    "amount": "$1,001 - $15,000",
+    "amountMin": 1001,
+    "amountMax": 15000,
+    "capitalGains": null,
+    "price": 79.34
+   },
+   "filing": {
+    "docId": "20030155",
+    "year": 2025,
+    "pdfUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2025/20030155.pdf"
+   },
+   "person": {
+    "bioguideId": "K000398",
+    "name": "Thomas H. Kean, Jr.",
+    "firstName": "Thomas",
+    "lastName": "Kean",
+    "state": "NJ",
+    "district": 7,
+    "party": "Republican",
+    "phone": "202-225-5361",
+    "gender": "M",
+    "birthday": "1968-09-05"
+   }
+  },
+  {
+   "id": "20030275-9",
+   "owner": "DC",
+   "asset": {
+    "name": "Illumina, Inc. - Common Stock",
+    "ticker": "ILMN",
+    "type": "ST",
+    "typeDescription": "Stocks (including ADRs)"
+   },
+   "transaction": {
+    "type": "P",
+    "description": "Purchase",
+    "category": "buy",
+    "tradeDate": "2025-04-01",
+    "notificationDate": "2025-05-03",
+    "filingDate": "2025-05-15",
+    "amount": "$1,001 - $15,000",
+    "amountMin": 1001,
+    "amountMax": 15000,
+    "capitalGains": null,
+    "price": 79.34
+   },
+   "filing": {
+    "docId": "20030275",
+    "year": 2025,
+    "pdfUrl": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2025/20030275.pdf"
+   },
+   "person": {
+    "bioguideId": "K000398",
+    "name": "Thomas H. Kean, Jr.",
+    "firstName": "Thomas",
+    "lastName": "Kean",
+    "state": "NJ",
+    "district": 7,
+    "party": "Republican",
+    "phone": "202-225-5361",
+    "gender": "M",
+    "birthday": "1968-09-05"
+   }
+  }
+ ]
+}
